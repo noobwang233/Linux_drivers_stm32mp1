@@ -7,14 +7,15 @@
 
 KERNELDIR := /home/wt/Linux/Linux_drivers/linux-5.4.31
 CURRENT_PATH := $(shell pwd)
-obj-m += testdrv.o
+ROOTFS := /home/wt/Linux/nfs/rootfs
+obj-m += leddrv.o
+#leddrv.ko 有testdrv.o和led.o生成
+leddrv-objs = testdrv.o led.o
 build: kernel_modules
 
 kernel_modules:
 	$(MAKE) -C $(KERNELDIR) M=$(CURRENT_PATH) modules
-all:
-	make -C $(KERN_DIR) M=`pwd` modules
-	$(CROSS_COMPILE)gcc -o testdrv testdrv.c
-
+copy:
+	sudo cp *.ko $(ROOTFS)/lib/modules/5.4.31
 clean:
-	$(MAKE) -C $(KERNELDIR) M=$(CURRENT_PATH) clean
+	rm -rf *.o  .*.o.d .*.cmd *.mod.* *.mod modules.order Module.symvers .tmp_versions

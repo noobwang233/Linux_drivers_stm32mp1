@@ -2,6 +2,7 @@
     "files.associations": {
         "ide.h": "c",
         "module.h": "c",
-        "init.h": "c"
+        "init.h": "c",
+        "types.h": "c"
     }
 }

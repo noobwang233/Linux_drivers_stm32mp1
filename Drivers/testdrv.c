@@ -3,13 +3,11 @@
 #include <linux/ide.h>
 #include <linux/init.h>    // 模块加载init和卸载exit相关头文件
 #include <linux/module.h>
+#include "led.h"           //led的设备资源以及操控
 
-#define CHRDEVBASE_MAJOR 200 /* 主设备号 */
-#define CHRDEVBASE_NAME "testdrv" /* 设备名 */
+#define TESTDRV_MAJOR 200     /* 驱动的主设备号 */
+#define TESTDRV_NAME "leddrv" /* 驱动的主设备名称 */
 
-static char readbuf[100]; /* 读缓冲区 */
-static char writebuf[100]; /* 写缓冲区 */
-static char kerneldata[] = {"testdrv kernel data!"};
 static struct file_operations testdrv_fop;
 
 static int testdrv_open(struct inode *inode, struct file *filp)
@@ -28,10 +26,11 @@ static int testdrv_release(struct inode *inode, struct file *filp)
 static ssize_t testdrv_read(struct file *filp, char __user *buf, size_t cnt, loff_t *offt)
 {
     int retvalue = 0;
+    u8 status = 0;
 
+    status = get_led_status();
     /* 向用户空间发送数据 */
-    memcpy(readbuf, kerneldata, sizeof(kerneldata));
-    retvalue = copy_to_user(buf, readbuf, cnt);
+    retvalue = copy_to_user(buf, &status, cnt);
     if(retvalue == 0)
     {
         printk("kernel senddata ok!\r\n");
@@ -48,18 +47,33 @@ static ssize_t testdrv_read(struct file *filp, char __user *buf, size_t cnt, lof
 static ssize_t testdrv_write(struct file *filp, const char __user *buf, size_t cnt, loff_t *offt)
 {
     int retvalue = 0;
+    u8 cmd = 0;
 
-    retvalue = copy_from_user(writebuf, buf, cnt);
+    retvalue = copy_from_user(&cmd, buf, cnt);
     if(retvalue == 0)
     {
-        printk("kernel recevdata:%s\r\n", writebuf);
+        printk("kernel recevdata:%d\r\n", cmd);
     }
     else
     {
         printk("kernel recevdata failed!\r\n");
     }
 
-    printk("testdrv write!\r\n");
+    switch (cmd)
+    {
+    case 0:
+        led_off();
+        printk("led off\n");
+        break;
+    case 1:
+        led_on();
+        printk("led on\n");
+        break;
+    default:
+        led_trigger();
+        printk("led trigger\n");
+        break;
+    }
     return 0;
 }
 
@@ -68,10 +82,14 @@ static int __init testdrv_init(void)
     int retvalue = 0;
 
     /* 注册字符设备驱动 */
-    retvalue = register_chrdev(CHRDEVBASE_MAJOR, CHRDEVBASE_NAME, &testdrv_fop);
+    led_init();
+    printk("led init\n");
+    retvalue = register_chrdev(TESTDRV_MAJOR, TESTDRV_NAME, &testdrv_fop);
     if(retvalue < 0)
     {
         printk("chrdevbase driver register failed\r\n");
+        led_deinit();
+        printk("led deinit\n");
     }
     printk("chrdevbase_init() success!\r\n");
     return 0;
@@ -80,7 +98,9 @@ static int __init testdrv_init(void)
 static void __exit testdrv_exit(void)
 {
     /* 注销字符设备驱动 */
-    unregister_chrdev(CHRDEVBASE_MAJOR, CHRDEVBASE_NAME);
+    unregister_chrdev(TESTDRV_MAJOR, TESTDRV_NAME);
+    led_deinit();
+    printk("led deinit\n");
     printk("chrdevbase_exit() success!\r\n");
 }
 
