@@ -16,6 +16,7 @@ build: kernel_modules
 kernel_modules:
 	$(MAKE) -C $(KERNELDIR) M=$(CURRENT_PATH) modules
 copy:
+	sudo rm -rf  $(ROOTFS)/lib/modules/5.4.31/*.ko
 	sudo cp *.ko $(ROOTFS)/lib/modules/5.4.31
 clean:
-	rm -rf *.o  .*.o.d .*.cmd *.mod.* *.mod modules.order Module.symvers .tmp_versions
+	rm -rf *.o *.ko .*.o.d .*.cmd *.mod.* *.mod modules.order Module.symvers .tmp_versions

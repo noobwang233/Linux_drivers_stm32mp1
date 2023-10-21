@@ -1,0 +1,1 @@
+cmd_/home/wt/Linux/Linux_drivers/Drivers/leddrv.mod := { echo  /home/wt/Linux/Linux_drivers/Drivers/testdrv.o /home/wt/Linux/Linux_drivers/Drivers/led.o; echo; } > /home/wt/Linux/Linux_drivers/Drivers/leddrv.mod

@@ -1,0 +1,1 @@
+cmd_/home/wt/Linux/Linux_drivers/Drivers/leddrv.ko := arm-none-linux-gnueabihf-ld -r  -EL  --build-id  -T ./scripts/module-common.lds -T ./arch/arm/kernel/module.lds -o /home/wt/Linux/Linux_drivers/Drivers/leddrv.ko /home/wt/Linux/Linux_drivers/Drivers/leddrv.o /home/wt/Linux/Linux_drivers/Drivers/leddrv.mod.o;  true

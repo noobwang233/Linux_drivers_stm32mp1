@@ -4,14 +4,28 @@
 #include <linux/init.h>    // 模块加载init和卸载exit相关头文件
 #include <linux/module.h>
 #include "led.h"           //led的设备资源以及操控
+#include <linux/cdev.h>         // cdev相关头文件
+#include <linux/device.h>   //设备号dev_t相关头文件
+#include <linux/errno.h>    //错误相关头文件
 
 #define TESTDRV_MAJOR 200     /* 驱动的主设备号 */
 #define TESTDRV_NAME "leddrv" /* 驱动的主设备名称 */
+#define DEVICE_CNT    1       /* 设备数量 */
+static struct led_dev_t
+{
+    struct file_operations fop;
+    struct cdev cdev;
+    struct class *class;
+    struct device *device;
+    int major;
+    int minor;
+    dev_t deviceID;
+}led_dev_0;
 
 static struct file_operations testdrv_fop;
-
 static int testdrv_open(struct inode *inode, struct file *filp)
 {
+    filp->private_data = &led_dev_0;
     printk("testdrv open!\r\n");
     return 0;
 }
@@ -84,21 +98,72 @@ static int __init testdrv_init(void)
     /* 注册字符设备驱动 */
     led_init();
     printk("led init\n");
-    retvalue = register_chrdev(TESTDRV_MAJOR, TESTDRV_NAME, &testdrv_fop);
+    /*申请设备号*/
+    led_dev_0.major=TESTDRV_MAJOR;
+    if(led_dev_0.major != 0)
+    {
+        led_dev_0.deviceID = MKDEV(led_dev_0.major, 0);
+        retvalue = register_chrdev_region(led_dev_0.deviceID, DEVICE_CNT, TESTDRV_NAME);
+        if(retvalue < 0) 
+        {
+            pr_err("cannot register %s char driver [retvalue=%d]\n",TESTDRV_NAME, DEVICE_CNT);
+            goto unmap;
+        }
+    }
+    else
+    {
+        retvalue = alloc_chrdev_region(&led_dev_0.deviceID, 0, DEVICE_CNT, TESTDRV_NAME);
+        if(retvalue < 0) 
+        {
+            pr_err("cannot register %s char driver [retvalue=%d]\n",TESTDRV_NAME, DEVICE_CNT);
+            goto unmap;
+        }
+        led_dev_0.major = MAJOR(led_dev_0.deviceID);
+        led_dev_0.minor = MINOR(led_dev_0.deviceID);
+    }
+    printk("newcheled major=%d,minor=%d\r\n",led_dev_0.major, led_dev_0.minor);
+    /*初始化cdev*/
+    led_dev_0.cdev.owner = THIS_MODULE;
+    cdev_init(&led_dev_0.cdev, &testdrv_fop);
+    /*注册cdev*/
+    retvalue = cdev_add(&led_dev_0.cdev, led_dev_0.deviceID, DEVICE_CNT);
     if(retvalue < 0)
     {
-        printk("chrdevbase driver register failed\r\n");
-        led_deinit();
-        printk("led deinit\n");
+        pr_err("add cdev %s faild\n",TESTDRV_NAME);
+        goto unregister;
+    }
+    /*创建类*/
+    led_dev_0.class = class_create(THIS_MODULE, TESTDRV_NAME);
+    if (IS_ERR(led_dev_0.class)) {
+        pr_err("create class %s faild\n",TESTDRV_NAME);
+        goto del_cdev;
+    }
+    /*创建设备*/
+    led_dev_0.device = device_create(led_dev_0.class, NULL, led_dev_0.deviceID, NULL, TESTDRV_NAME);
+    if (IS_ERR(led_dev_0.device)) {
+        pr_err("create device %s faild\n",TESTDRV_NAME);
+        goto destroy_class;
     }
     printk("chrdevbase_init() success!\r\n");
     return 0;
+destroy_class:
+    class_destroy(led_dev_0.class);
+del_cdev:
+    cdev_del(&led_dev_0.cdev);
+unregister:
+    unregister_chrdev_region(led_dev_0.deviceID, DEVICE_CNT);
+unmap:
+    led_deinit();
+    return -EIO;
 }
 
 static void __exit testdrv_exit(void)
 {
     /* 注销字符设备驱动 */
-    unregister_chrdev(TESTDRV_MAJOR, TESTDRV_NAME);
+    device_destroy(led_dev_0.class, led_dev_0.deviceID);
+    class_destroy(led_dev_0.class);
+    cdev_del(&led_dev_0.cdev);
+    unregister_chrdev_region(led_dev_0.deviceID, DEVICE_CNT);
     led_deinit();
     printk("led deinit\n");
     printk("chrdevbase_exit() success!\r\n");
