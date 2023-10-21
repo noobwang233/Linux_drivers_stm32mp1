@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "ide.h": "c",
+        "module.h": "c",
+        "init.h": "c"
+    }
+}
