@@ -11,17 +11,8 @@
 #define TESTDRV_MAJOR 200     /* 驱动的主设备号 */
 #define TESTDRV_NAME "leddrv" /* 驱动的主设备名称 */
 #define DEVICE_CNT    1       /* 设备数量 */
-static struct led_dev_t
-{
-    struct file_operations fop;
-    struct cdev cdev;
-    struct class *class;
-    struct device *device;
-    int major;
-    int minor;
-    dev_t deviceID;
-}led_dev_0;
 
+struct led_dev_t led_dev_0;
 static struct file_operations testdrv_fop;
 static int testdrv_open(struct inode *inode, struct file *filp)
 {
@@ -96,7 +87,7 @@ static int __init testdrv_init(void)
     int retvalue = 0;
 
     /* 注册字符设备驱动 */
-    led_init();
+    led_init(&led_dev_0);
     printk("led init\n");
     /*申请设备号*/
     led_dev_0.major=TESTDRV_MAJOR;

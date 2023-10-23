@@ -1,17 +1,7 @@
 #include "led.h"
 #include <asm/io.h> //定义了ioremap相关
-
-/* 寄存器物理地址 */
-#define PERIPH_BASE (0x40000000)
-#define MPU_AHB4_PERIPH_BASE (PERIPH_BASE + 0x10000000)
-#define RCC_BASE (MPU_AHB4_PERIPH_BASE + 0x0000)
-#define RCC_MP_AHB4ENSETR (RCC_BASE + 0XA28)
-#define GPIOI_BASE (MPU_AHB4_PERIPH_BASE + 0xA000)
-#define GPIOI_MODER (GPIOI_BASE + 0x0000) 
-#define GPIOI_OTYPER (GPIOI_BASE + 0x0004)
-#define GPIOI_OSPEEDR (GPIOI_BASE + 0x0008) 
-#define GPIOI_PUPDR (GPIOI_BASE + 0x000C) 
-#define GPIOI_BSRR (GPIOI_BASE + 0x0018)
+#include <linux/of.h>
+#include <linux/of_address.h>
 
 /* 映射后的寄存器虚拟地址指针 */
 static void __iomem *MPU_AHB4_PERIPH_RCC_PI;
@@ -28,28 +18,62 @@ static void led_unmap(void)
     /* 取消映射 */
     iounmap(MPU_AHB4_PERIPH_RCC_PI);
     iounmap(GPIOI_MODER_PI);
-    iounmap(GPIOI_OTYPER_PI);
-    iounmap(GPIOI_OSPEEDR_PI);
-    iounmap(GPIOI_PUPDR_PI);
     iounmap(GPIOI_BSRR_PI);
 }
-static void led_map(void)
-{
-    MPU_AHB4_PERIPH_RCC_PI = ioremap(RCC_MP_AHB4ENSETR, 4);
-    GPIOI_MODER_PI = ioremap(GPIOI_MODER, 4);
-    GPIOI_OTYPER_PI = ioremap(GPIOI_OTYPER, 4);
-    GPIOI_OSPEEDR_PI = ioremap(GPIOI_OTYPER, 4);
-    GPIOI_PUPDR_PI = ioremap(GPIOI_PUPDR, 4);
-    GPIOI_BSRR_PI = ioremap(GPIOI_BSRR, 4);
-}
 
-void led_init()
+void led_init(struct led_dev_t *led_dev)
 {
     u32 val = 0;
+    u32 regdata[3];
+    struct property *proper;
+    int retvalue;
+    const char *str;
+//查找led_test设备结点
+    led_dev->np = of_find_node_by_path("/led_test");
+	if (led_dev->np) {
+        printk("led_test node find!\r\n");
+	}
+    else
+    {
+        printk("led_test node not find!\r\n");
+    }
+    proper = of_find_property(led_dev->np, "compatible", NULL);
+
+    if(proper == NULL) {
+        printk("compatible property find failed\r\n");
+    } else {
+        printk("compatible = %s\r\n", (char*)proper->value);
+    }
+
+    /* 3、获取 status 属性内容 */
+    retvalue = of_property_read_string(led_dev->np, "status", &str);
+    if(retvalue < 0){
+        printk("status read failed!\r\n");
+    }
+    else {
+        printk("status = %s\r\n",str);
+    }
+
+    retvalue = of_property_read_u32_array(led_dev->np, "reg", regdata, 3);
+    if(retvalue < 0) {
+        printk("reg property read failed!\r\n");
+    }
+    else {
+        u8 i = 0;
+        printk("reg data:\r\n");
+        for(i = 0; i < 3; i++)
+            printk("%#X ", regdata[i]);
+        printk("\r\n");
+    }
+//解析reg属性并地址映射
+    MPU_AHB4_PERIPH_RCC_PI = of_iomap(led_dev->np,0);
+    GPIOI_MODER_PI = of_iomap(led_dev->np, 1);
+    GPIOI_OTYPER_PI = GPIOI_MODER_PI + 0x04;
+    GPIOI_OSPEEDR_PI = GPIOI_MODER_PI + 0x08;
+    GPIOI_PUPDR_PI = GPIOI_MODER_PI + 0x0C;
+    GPIOI_BSRR_PI = of_iomap(led_dev->np, 2);
 
     /* 初始化 LED */
-    /* 1、寄存器地址映射 */
-    led_map();
     /* 2、使能 PI 时钟 */
     val = readl(MPU_AHB4_PERIPH_RCC_PI);
     val &= ~(0X1 << 8); /* 清除以前的设置 */
