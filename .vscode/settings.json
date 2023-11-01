@@ -7,6 +7,8 @@
         "device.h": "c",
         "errno.h": "c",
         "cdev.h": "c",
-        "kernel.h": "c"
+        "kernel.h": "c",
+        "of_gpio.h": "c",
+        "of.h": "c"
     }
 }

@@ -3,15 +3,29 @@
 #include <linux/ide.h>
 #include <linux/init.h>    // 模块加载init和卸载exit相关头文件
 #include <linux/module.h>
-#include "led.h"           //led的设备资源以及操控
 #include <linux/cdev.h>         // cdev相关头文件
 #include <linux/device.h>   //设备号dev_t相关头文件
 #include <linux/errno.h>    //错误相关头文件
+#include <linux/gpio.h>     //gpio子系统相关头文件
+#include <linux/of_gpio.h>  //of_gpio函数相关头文件
+#include <linux/of.h>       //of_函数相关头文件
 
 #define TESTDRV_MAJOR 200     /* 驱动的主设备号 */
 #define TESTDRV_NAME "leddrv" /* 驱动的主设备名称 */
 #define DEVICE_CNT    1       /* 设备数量 */
 
+struct led_dev_t
+{
+    struct file_operations fop;
+    struct cdev cdev;
+    struct class *class;
+    struct device *device;
+    int major;
+    int minor;
+    dev_t deviceID;
+    struct device_node *np;
+    int gpio; /* led 所使用的 GPIO 编号 */
+};
 struct led_dev_t led_dev_0;
 static struct file_operations testdrv_fop;
 static int testdrv_open(struct inode *inode, struct file *filp)
@@ -33,7 +47,7 @@ static ssize_t testdrv_read(struct file *filp, char __user *buf, size_t cnt, lof
     int retvalue = 0;
     u8 status = 0;
 
-    status = get_led_status();
+    status = gpio_get_value(led_dev_0.gpio);
     /* 向用户空间发送数据 */
     retvalue = copy_to_user(buf, &status, cnt);
     if(retvalue == 0)
@@ -66,16 +80,16 @@ static ssize_t testdrv_write(struct file *filp, const char __user *buf, size_t c
 
     switch (cmd)
     {
-    case 0:
-        led_off();
-        printk("led off\n");
-        break;
-    case 1:
-        led_on();
+    case 0:// GPIO_ACTIVE_LOW
+        gpio_set_value(led_dev_0.gpio, 0);
         printk("led on\n");
         break;
+    case 1:
+        gpio_set_value(led_dev_0.gpio, 1);
+        printk("led off\n");
+        break;
     default:
-        led_trigger();
+        gpio_set_value(led_dev_0.gpio, (gpio_get_value(led_dev_0.gpio)==0? 1:0));
         printk("led trigger\n");
         break;
     }
@@ -87,8 +101,35 @@ static int __init testdrv_init(void)
     int retvalue = 0;
 
     /* 注册字符设备驱动 */
-    led_init(&led_dev_0);
-    printk("led init\n");
+    /* 查找设备结点 */
+    led_dev_0.np = of_find_compatible_node(NULL , NULL , "led_gpio");
+    if (led_dev_0.np == NULL)
+    {
+        pr_err("find device node failed\n");
+    }
+    printk("find device node successfully! \n");
+    /* 解析gpio属性 */
+    led_dev_0.gpio = of_get_named_gpio(led_dev_0.np, "gpio", 0);
+    if (led_dev_0.gpio == 0)
+    {
+        pr_err("get gpio failed\n");
+    }
+    printk("get gpio %d successfully! \n", led_dev_0.gpio);
+    /* 申请gpio */
+    retvalue = gpio_request(led_dev_0.gpio, "led_gpio");
+    if (retvalue != 0)
+    {
+        pr_err("request gpio failed\n");
+    }
+    printk("request gpio %d successfully! \n", led_dev_0.gpio);
+    /* 设置为输出且默认为1 GPIO_ACTIVE_LOW 关闭led*/
+    retvalue = gpio_direction_output(led_dev_0.gpio, 1);
+    if (retvalue != 0)
+    {
+        pr_err("request gpio output failed\n");
+        goto freegpio;
+    }
+    printk("request gpio %d output successfully! \n", led_dev_0.gpio);
     /*申请设备号*/
     led_dev_0.major=TESTDRV_MAJOR;
     if(led_dev_0.major != 0)
@@ -98,7 +139,7 @@ static int __init testdrv_init(void)
         if(retvalue < 0) 
         {
             pr_err("cannot register %s char driver [retvalue=%d]\n",TESTDRV_NAME, DEVICE_CNT);
-            goto unmap;
+            goto freegpio;
         }
     }
     else
@@ -107,7 +148,7 @@ static int __init testdrv_init(void)
         if(retvalue < 0) 
         {
             pr_err("cannot register %s char driver [retvalue=%d]\n",TESTDRV_NAME, DEVICE_CNT);
-            goto unmap;
+            goto freegpio;
         }
         led_dev_0.major = MAJOR(led_dev_0.deviceID);
         led_dev_0.minor = MINOR(led_dev_0.deviceID);
@@ -143,8 +184,8 @@ del_cdev:
     cdev_del(&led_dev_0.cdev);
 unregister:
     unregister_chrdev_region(led_dev_0.deviceID, DEVICE_CNT);
-unmap:
-    led_deinit();
+freegpio:
+    gpio_free(led_dev_0.gpio);
     return -EIO;
 }
 
@@ -155,7 +196,7 @@ static void __exit testdrv_exit(void)
     class_destroy(led_dev_0.class);
     cdev_del(&led_dev_0.cdev);
     unregister_chrdev_region(led_dev_0.deviceID, DEVICE_CNT);
-    led_deinit();
+    gpio_free(led_dev_0.gpio);
     printk("led deinit\n");
     printk("chrdevbase_exit() success!\r\n");
 }

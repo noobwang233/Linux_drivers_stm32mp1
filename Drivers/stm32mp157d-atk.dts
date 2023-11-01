@@ -37,13 +37,10 @@
 		};
 	};
 
-	led_test{
-		#address-cells = <1>;
-		#size-cells = <1>;
+	led_gpio{
+		compatible = "led_gpio";
 		status = "okay";
-		reg = <	0x50000A28 0x04 
-				0x5000A000 0x0C
-			   	0x5000A018 0x04 >;
+		gpio = <&gpioi 0 GPIO_ACTIVE_LOW>;
 	};
 };
 
