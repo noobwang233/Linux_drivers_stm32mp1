@@ -9,25 +9,30 @@
 #include <linux/gpio.h>     //gpio子系统相关头文件
 #include <linux/of_gpio.h>  //of_gpio函数相关头文件
 #include <linux/of.h>       //of_函数相关头文件
+#include <linux/miscdevice.h> //miscdevice头文件
 
-#define TESTDRV_MAJOR 200     /* 驱动的主设备号 */
-#define TESTDRV_NAME "leddrv" /* 驱动的主设备名称 */
-#define DEVICE_CNT    1       /* 设备数量 */
+#define LED_MISC_MINOR  233     /* LED_MISC的次设备号 */
+#define LED_MISC_NAME  "led_misc"  /* 驱动的主设备名称 */
+#define DEVICE_CNT    1        /* 设备数量 */
 
 struct led_dev_t
 {
-    struct file_operations fop;
-    struct cdev cdev;
-    struct class *class;
-    struct device *device;
-    int major;
-    int minor;
-    dev_t deviceID;
     struct device_node *np;
     int gpio; /* led 所使用的 GPIO 编号 */
+    struct miscdevice *misc;
 };
-struct led_dev_t led_dev_0;
 static struct file_operations testdrv_fop;
+
+/* MISC 设备结构体 */    /* 填充miscdevice结构体*/
+static struct miscdevice led_miscdev = {
+    .minor = LED_MISC_MINOR,
+    .name = LED_MISC_NAME,
+    .fops = &testdrv_fop,
+};
+struct led_dev_t led_dev_0 = {
+    .misc = &led_miscdev,
+};
+
 static int testdrv_open(struct inode *inode, struct file *filp)
 {
     filp->private_data = &led_dev_0;
@@ -130,60 +135,16 @@ static int __init testdrv_init(void)
         goto freegpio;
     }
     printk("request gpio %d output successfully! \n", led_dev_0.gpio);
-    /*申请设备号*/
-    led_dev_0.major=TESTDRV_MAJOR;
-    if(led_dev_0.major != 0)
+
+    /* 注册MISC设备 */
+    retvalue = misc_register(led_dev_0.misc);
+    if(retvalue != 0) 
     {
-        led_dev_0.deviceID = MKDEV(led_dev_0.major, 0);
-        retvalue = register_chrdev_region(led_dev_0.deviceID, DEVICE_CNT, TESTDRV_NAME);
-        if(retvalue < 0) 
-        {
-            pr_err("cannot register %s char driver [retvalue=%d]\n",TESTDRV_NAME, DEVICE_CNT);
-            goto freegpio;
-        }
+        pr_err("cannot register misc driver\n");
+        goto freegpio;
     }
-    else
-    {
-        retvalue = alloc_chrdev_region(&led_dev_0.deviceID, 0, DEVICE_CNT, TESTDRV_NAME);
-        if(retvalue < 0) 
-        {
-            pr_err("cannot register %s char driver [retvalue=%d]\n",TESTDRV_NAME, DEVICE_CNT);
-            goto freegpio;
-        }
-        led_dev_0.major = MAJOR(led_dev_0.deviceID);
-        led_dev_0.minor = MINOR(led_dev_0.deviceID);
-    }
-    printk("newcheled major=%d,minor=%d\r\n",led_dev_0.major, led_dev_0.minor);
-    /*初始化cdev*/
-    led_dev_0.cdev.owner = THIS_MODULE;
-    cdev_init(&led_dev_0.cdev, &testdrv_fop);
-    /*注册cdev*/
-    retvalue = cdev_add(&led_dev_0.cdev, led_dev_0.deviceID, DEVICE_CNT);
-    if(retvalue < 0)
-    {
-        pr_err("add cdev %s faild\n",TESTDRV_NAME);
-        goto unregister;
-    }
-    /*创建类*/
-    led_dev_0.class = class_create(THIS_MODULE, TESTDRV_NAME);
-    if (IS_ERR(led_dev_0.class)) {
-        pr_err("create class %s faild\n",TESTDRV_NAME);
-        goto del_cdev;
-    }
-    /*创建设备*/
-    led_dev_0.device = device_create(led_dev_0.class, NULL, led_dev_0.deviceID, NULL, TESTDRV_NAME);
-    if (IS_ERR(led_dev_0.device)) {
-        pr_err("create device %s faild\n",TESTDRV_NAME);
-        goto destroy_class;
-    }
-    printk("chrdevbase_init() success!\r\n");
+    printk("led_misc_init() success! major=%d,minor=%d\r\n", 10, led_dev_0.misc->minor);
     return 0;
-destroy_class:
-    class_destroy(led_dev_0.class);
-del_cdev:
-    cdev_del(&led_dev_0.cdev);
-unregister:
-    unregister_chrdev_region(led_dev_0.deviceID, DEVICE_CNT);
 freegpio:
     gpio_free(led_dev_0.gpio);
     return -EIO;
@@ -192,13 +153,10 @@ freegpio:
 static void __exit testdrv_exit(void)
 {
     /* 注销字符设备驱动 */
-    device_destroy(led_dev_0.class, led_dev_0.deviceID);
-    class_destroy(led_dev_0.class);
-    cdev_del(&led_dev_0.cdev);
-    unregister_chrdev_region(led_dev_0.deviceID, DEVICE_CNT);
+    misc_deregister(led_dev_0.misc);
     gpio_free(led_dev_0.gpio);
-    printk("led deinit\n");
-    printk("chrdevbase_exit() success!\r\n");
+    printk("led_misc deinit\n");
+    printk("led_misc_exit() success!\r\n");
 }
 
 static struct file_operations testdrv_fop = {

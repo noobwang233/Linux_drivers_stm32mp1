@@ -9,6 +9,8 @@
         "cdev.h": "c",
         "kernel.h": "c",
         "of_gpio.h": "c",
-        "of.h": "c"
+        "of.h": "c",
+        "system_misc.h": "c",
+        "miscdevice.h": "c"
     }
 }
