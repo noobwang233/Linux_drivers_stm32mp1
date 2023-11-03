@@ -20,11 +20,9 @@ kernel_modules:
 copy:
 	sudo rm -rf  $(ROOTFS)/lib/modules/5.4.31/*.ko
 	sudo cp *.ko $(ROOTFS)/lib/modules/5.4.31
-	sudo cp *.dtb $(NTFS)
-	sudo cp *.dtb $(TFTP)
+	cp $(CURRENT_PATH)/../linux-5.4.31/arch/arm/boot/dts/stm32mp157d-atk.dtb $(NTFS)
+	cp $(CURRENT_PATH)/../linux-5.4.31/arch/arm/boot/dts/stm32mp157d-atk.dtb $(TFTP)
 copy_dts:
 	cp *.dts $(CURRENT_PATH)/../linux-5.4.31/arch/arm/boot/dts
-copy_dtb:
-	cp  $(CURRENT_PATH)/../linux-5.4.31/arch/arm/boot/dts/stm32mp157d-atk.dtb $(CURRENT_PATH)
 clean:
 	rm -rf *.o *.ko .*.o.d .*.cmd *.mod.* *.mod modules.order Module.symvers .tmp_versions

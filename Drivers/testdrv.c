@@ -10,6 +10,7 @@
 #include <linux/of_gpio.h>  //of_gpio函数相关头文件
 #include <linux/of.h>       //of_函数相关头文件
 #include <linux/miscdevice.h> //miscdevice头文件
+#include <linux/platform_device.h> //platform_device头文件
 
 #define LED_MISC_MINOR  233     /* LED_MISC的次设备号 */
 #define LED_MISC_NAME  "led_misc"  /* 驱动的主设备名称 */
@@ -22,7 +23,7 @@ struct led_dev_t
     struct miscdevice *misc;
 };
 static struct file_operations testdrv_fop;
-
+static struct platform_driver platform_testdrv;
 /* MISC 设备结构体 */    /* 填充miscdevice结构体*/
 static struct miscdevice led_miscdev = {
     .minor = LED_MISC_MINOR,
@@ -101,7 +102,7 @@ static ssize_t testdrv_write(struct file *filp, const char __user *buf, size_t c
     return 0;
 }
 
-static int __init testdrv_init(void)
+int testdrv_probe(struct platform_device *device)
 {
     int retvalue = 0;
 
@@ -149,14 +150,31 @@ freegpio:
     gpio_free(led_dev_0.gpio);
     return -EIO;
 }
-
-static void __exit testdrv_exit(void)
+int testdrv_remove(struct platform_device *device)
 {
     /* 注销字符设备驱动 */
     misc_deregister(led_dev_0.misc);
     gpio_free(led_dev_0.gpio);
     printk("led_misc deinit\n");
-    printk("led_misc_exit() success!\r\n");
+    printk("testdrv_remove() success!\r\n");
+    return 0;
+}
+
+static int __init testdrv_init(void)
+{
+    int retvalue = 0;
+    retvalue = platform_driver_register(&platform_testdrv);
+    if (retvalue != 0)
+    {
+        pr_err("register platform_device driver failed\n");
+        return -EIO;
+    }
+    return 0;
+}
+
+static void __exit testdrv_exit(void)
+{
+    platform_driver_unregister(&platform_testdrv);
 }
 
 static struct file_operations testdrv_fop = {
@@ -167,6 +185,20 @@ static struct file_operations testdrv_fop = {
     .read = testdrv_read,
 };
 
+
+static struct of_device_id testdrv_match_table[] = {
+    {.compatible = "led_gpio",},
+    { /* Sentinel */ },
+};
+
+static struct platform_driver platform_testdrv = {
+	.probe = testdrv_probe,
+	.remove = testdrv_remove,
+    .driver = {
+    	.name = "platform_led_driver",
+    	.of_match_table = testdrv_match_table,
+    },
+};
 module_init(testdrv_init);
 module_exit(testdrv_exit);
 
