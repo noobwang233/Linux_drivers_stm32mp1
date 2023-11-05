@@ -21,6 +21,7 @@ struct led_dev_t
     struct device_node *np;
     int gpio; /* led 所使用的 GPIO 编号 */
     struct miscdevice *misc;
+    atomic_t lock; /* 原子变量 */
 };
 static struct file_operations testdrv_fop;
 static struct platform_driver platform_testdrv;
@@ -36,6 +37,11 @@ struct led_dev_t led_dev_0 = {
 
 static int testdrv_open(struct inode *inode, struct file *filp)
 {
+    if(!atomic_dec_and_test(&led_dev_0.lock))//原子位-1不为0,说明以及被其他线程占用
+    {
+        atomic_inc(&led_dev_0.lock);//将其+1恢复
+        return -EBUSY; /* LED 被使用，返回忙 */
+    }
     filp->private_data = &led_dev_0;
     printk("testdrv open!\r\n");
     return 0;
@@ -43,6 +49,7 @@ static int testdrv_open(struct inode *inode, struct file *filp)
 
 static int testdrv_release(struct inode *inode, struct file *filp)
 {
+    atomic_inc(&led_dev_0.lock);//将其+1释放
     printk("testdrv close!\r\n");
     return 0;
 }
@@ -105,6 +112,9 @@ static ssize_t testdrv_write(struct file *filp, const char __user *buf, size_t c
 int testdrv_probe(struct platform_device *device)
 {
     int retvalue = 0;
+
+    /* 初始化atomic lock */
+    led_dev_0.lock = (atomic_t)ATOMIC_INIT(1);
 
     /* 注册字符设备驱动 */
     /* 查找设备结点 */

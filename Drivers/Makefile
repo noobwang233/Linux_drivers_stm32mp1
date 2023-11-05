@@ -22,7 +22,9 @@ copy:
 	sudo cp *.ko $(ROOTFS)/lib/modules/5.4.31
 	cp $(CURRENT_PATH)/../linux-5.4.31/arch/arm/boot/dts/stm32mp157d-atk.dtb $(NTFS)
 	cp $(CURRENT_PATH)/../linux-5.4.31/arch/arm/boot/dts/stm32mp157d-atk.dtb $(TFTP)
+	arm-none-linux-gnueabihf-gcc -o testapp testapp.c
+	sudo cp testapp $(ROOTFS)/lib/modules/5.4.31
 copy_dts:
 	cp *.dts $(CURRENT_PATH)/../linux-5.4.31/arch/arm/boot/dts
 clean:
-	rm -rf *.o *.ko .*.o.d .*.cmd *.mod.* *.mod modules.order Module.symvers .tmp_versions
+	rm -rf *.o *.ko .*.o.d .*.cmd *.mod.* *.mod modules.order Module.symvers .tmp_versions *app

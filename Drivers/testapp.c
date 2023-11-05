@@ -6,13 +6,12 @@
 #include "stdlib.h"
 #include "string.h"
 
-static char usrdata[] = {"usr data!"};
-
 int main(int argc, char *argv[])
 {
     int fd, retvalue;
     char *filename;
-    char readbuf[100], writebuf[100];
+    unsigned char cnt = 0;
+    char writebuf[1];
 
     if(argc != 3)
     {
@@ -29,28 +28,20 @@ int main(int argc, char *argv[])
         printf("Can't open file %s\r\n", filename);
         return -1;
     }
-
-    if(atoi(argv[2]) == 1)
-    { /* 从驱动文件读取数据 */
-        retvalue = read(fd, readbuf, 50);
-        if(retvalue < 0)
-        {
-            printf("read file %s failed!\r\n", filename);
-        }
-        else
-        {
-            /* 读取成功，打印出读取成功的数据 */
-            printf("read data:%s\r\n",readbuf);
-        }
+    //传入cmd
+    writebuf[0] = (char)atoi(argv[2]);
+    retvalue = write(fd, writebuf, 1);
+    if(retvalue < 0){
+        printf("write file %s failed!\r\n", filename);
     }
 
-    if(atoi(argv[2]) == 2)
-    {
-        memcpy(writebuf, usrdata, sizeof(usrdata));
-        retvalue = write(fd, writebuf, 50);
-        if(retvalue < 0){
-            printf("write file %s failed!\r\n", filename);
-        }
+    /* 模拟占用 25S LED */
+    while(1) {
+        sleep(5);
+        cnt++;
+        printf("App running times:%d\r\n", cnt);
+        if(cnt >= 5)
+            break;
     }
 
     /* 关闭设备 */
