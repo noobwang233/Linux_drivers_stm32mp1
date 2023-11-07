@@ -15,5 +15,12 @@
         "platform_device.h": "c",
         "typeinfo": "c",
         "gpio.h": "c"
-    }
+    },
+    "clangd.arguments": [
+        "--compile-commands-dir=${workspaceFolder}/linux-5.4.31"
+        // "--background-index",
+        // "--completion-style=detailed",
+        // "--header-insertion=never",
+        // "-log=info"
+    ]
 }

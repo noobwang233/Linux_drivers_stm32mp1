@@ -11,7 +11,7 @@
 #include <linux/of.h>       //of_函数相关头文件
 #include <linux/miscdevice.h> //miscdevice头文件
 #include <linux/platform_device.h> //platform_device头文件
-#include <linux/spinlock.h>   //自旋锁头文件
+#include <linux/semaphore.h>      //信号量头文件
 
 #define LED_MISC_MINOR  233     /* LED_MISC的次设备号 */
 #define LED_MISC_NAME  "led_misc"  /* 驱动的主设备名称 */
@@ -22,8 +22,8 @@ struct led_dev_t
     struct device_node *np;
     int gpio; /* led 所使用的 GPIO 编号 */
     struct miscdevice *misc;
-    spinlock_t lock; /* 自旋锁 */
-    char status;       /* 设备状态 */
+    struct semaphore sem; /*信号量*/
+    //struct mutex lock; /* 互斥量 */
 };
 static struct file_operations testdrv_fop;
 static struct platform_driver platform_testdrv;
@@ -39,32 +39,23 @@ struct led_dev_t led_dev_0 = {
 
 static int testdrv_open(struct inode *inode, struct file *filp)
 {
-    unsigned long flags; /* 中断状态 */
+    //unsigned long flags; /* 中断状态 */
 
     filp->private_data = &led_dev_0;
     printk("testdrv open!\r\n");
-    spin_lock_irqsave(&led_dev_0.lock, flags); /* 获取锁 */
-    if(led_dev_0.status == 0)//设备busy
+    /*获得信号量*/
+    if(down_interruptible(&led_dev_0.sem))
     {
-        spin_unlock_irqrestore(&led_dev_0.lock, flags); /* 解锁 */
-        return -EBUSY; /* LED 被使用，返回忙 */
+        pr_err("get sem failed!\r\n");
+        return -ERESTARTSYS;
     }
-    /* 临界区 */
-    led_dev_0.status--;//设备已使用
-    spin_unlock_irqrestore(&led_dev_0.lock, flags); /* 解锁 */
+    printk("get sem success!\r\n");
     return 0;
 }
 
 static int testdrv_release(struct inode *inode, struct file *filp)
 {
-    unsigned long flags; /* 中断状态 */
-    
-    spin_lock_irqsave(&led_dev_0.lock, flags); /* 获取锁 */
-    if(led_dev_0.status == 0)//设备已使用
-    {
-        led_dev_0.status++;//释放设备
-    }
-    spin_unlock_irqrestore(&led_dev_0.lock, flags); /* 释放锁 */
+    up(&led_dev_0.sem); /*释放信号量*/
     printk("testdrv close!\r\n");
     return 0;
 }
@@ -128,9 +119,8 @@ int testdrv_probe(struct platform_device *device)
 {
     int retvalue = 0;
 
-    /* 初始化自旋锁 lock */
-    spin_lock_init(&led_dev_0.lock);
-    led_dev_0.status = 1;
+    /* 初始化信号量值1*/
+    sema_init(&led_dev_0.sem,1);
     /* 注册字符设备驱动 */
     /* 查找设备结点 */
     led_dev_0.np = of_find_compatible_node(NULL , NULL , "led_gpio");
