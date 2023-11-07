@@ -1,0 +1,9 @@
+Drivers/*.cmd
+
+Drivers/*.mod*
+
+Drivers/*.o
+Drivers/Module.symvers
+Drivers/modules.order
+Drivers/*.ko
+Drivers/*app

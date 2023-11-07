@@ -13,6 +13,7 @@
         "system_misc.h": "c",
         "miscdevice.h": "c",
         "platform_device.h": "c",
-        "typeinfo": "c"
+        "typeinfo": "c",
+        "gpio.h": "c"
     }
 }
