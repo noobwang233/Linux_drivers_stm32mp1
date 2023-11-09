@@ -1,9 +1,73 @@
-Drivers/*.cmd
+# Prerequisites
+*.d
 
-Drivers/*.mod*
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+*.d
+*.ko
+*.cmd
+# Precompiled Headers
+*.gch
+*.pch
 
-Drivers/*.o
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+*.smod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
+build/
+.vscode/
+.cache/
+block
+certs
+crypto
+firmware
+fs
+init
+ipc
+kernel
+lib
+mm
+net
+samples
+scripts
+security
+sound
+tmp
+usr
+virt
+*.tmp
+linux-4.9.88/arch/arm/boot/dts/modules.order
+linux-4.9.88/arch/arm/common/modules.builtin
+linux-4.9.88/arch/arm/common/modules.order
+modules*
+linux-4.9.88/vmlinux
+linux-4.9.88/System.map
+linux-4.9.88/Module.symvers
+linux-4.9.88/.version
+linux-4.9.88/.tmp_vmlinux2
+linux-4.9.88/.tmp_vmlinux1
+linux-4.9.88/.tmp_System.map
+*tmp*
+linux-4.9.88/arch/arm/vdso/vdso.so.dbg
 Drivers/Module.symvers
-Drivers/modules.order
-Drivers/*.ko
-Drivers/*app
+*.mod.c
+*app

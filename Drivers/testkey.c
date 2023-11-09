@@ -53,6 +53,8 @@ static void __exit key_drv_exit(void);
 //private key init and deinit function
 static int key_dev_init(struct key_dev_t *key_dev);
 static int key_drv_deinit(struct key_dev_t *key_dev);
+//
+
 
 /* 驱动提供的文件操作结构体 */
 static struct file_operations key_drv_fop = {
@@ -68,7 +70,7 @@ static struct platform_driver key_platform_driver = {
     .remove = key_drv_remove,
 
     .driver = {
-        .name = "key_gpio",
+        .name = "key_drv",
         .of_match_table = keys_of_match_table,
     },
 };
@@ -109,8 +111,9 @@ static ssize_t key_drv_read(struct file *filp, char __user *buf, size_t cnt, lof
 {
     int retvalue = 0;
     u8 status = 0;
-
     struct key_dev_t *key_dev = filp->private_data;
+
+    printk(" read key_drv start!\r\n");
     status = gpio_get_value(key_dev->gpio);
     /* 向用户空间发送数据 */
     retvalue = copy_to_user(buf, &status, cnt);
@@ -124,42 +127,13 @@ static ssize_t key_drv_read(struct file *filp, char __user *buf, size_t cnt, lof
         return -EIO;
     }
 
-    printk(" read key_drv success!\r\n");
+    printk(" read key_drv finish!\r\n");
     return 0;
 }
 
 static ssize_t key_drv_write(struct file *filp, const char __user *buf, size_t cnt, loff_t *offt)
 {
-    int retvalue = 0;
-    u8 cmd = 0;
-
-    struct key_dev_t *key_dev = filp->private_data;
-    retvalue = copy_from_user(&cmd, buf, cnt);
-    if(retvalue == 0)
-    {
-        printk("key_drv receive data:%d\r\n", cmd);
-    }
-    else
-    {
-        printk("key_drv receive data failed!\r\n");
-        return -EIO;
-    }
-
-    switch (cmd)
-    {
-    case 0:// GPIO_ACTIVE_LOW
-        gpio_set_value(key_dev->gpio, 0);
-        printk("key on\n");
-        break;
-    case 1:
-        gpio_set_value(key_dev->gpio, 1);
-        printk("key off\n");
-        break;
-    default:
-        gpio_set_value(key_dev->gpio, (gpio_get_value(key_dev->gpio)==0? 1:0));
-        printk("key trigger\n");
-        break;
-    }
+    //empty
     return 0;
 }
 /*
@@ -215,7 +189,7 @@ static int key_dev_init(struct key_dev_t *key_dev)
         if(retvalue != 0)
         {
             pr_err("key_dev dev_t register failed! \n");
-            goto freecdev;
+            goto freegpio;
         }
     #else
         retvalue = alloc_chrdev_region(&(key_dev->key_cdev->dev), 0, 1, key_dev->key_pdev->name);
@@ -227,13 +201,16 @@ static int key_dev_init(struct key_dev_t *key_dev)
     #endif
     printk("key register dev_t success! major=%d,minor=%d\r\n", MAJOR(key_dev->key_cdev->dev), MINOR(key_dev->key_cdev->dev));
     /*注册字符设备*/
+    key_dev->key_cdev->owner = THIS_MODULE;
     cdev_init(key_dev->key_cdev, &key_drv_fop);
+    printk("cdev_init success!\n");
     retvalue = cdev_add(key_dev->key_cdev, key_dev->key_cdev->dev, 1);
     if(retvalue != 0) 
     {
         pr_err("cannot register cdev driver\n");
         goto freedevt;
     }
+    printk("cdev_add success!\n");
     /*生成设备节点*/
     key_dev->dev = device_create(key_dev->cls, NULL,  key_dev->key_cdev->dev,  NULL,  "key_dev_%d", key_dev_count);
     if(key_dev->dev == NULL)
@@ -252,8 +229,6 @@ delcdev:
     cdev_del(key_dev->key_cdev);
 freedevt:
     unregister_chrdev_region(key_dev->key_cdev->dev, 1);
-freecdev:
-    kfree(key_dev->key_cdev);
 freegpio:
     gpio_free(key_dev->gpio);
     return -EIO;
@@ -261,11 +236,14 @@ freegpio:
 
 static int key_drv_deinit(struct key_dev_t *key_dev)
 {
+    device_destroy(key_dev->cls, key_dev->key_cdev->dev);
+    printk("device_destroy success!\n");
     cdev_del(key_dev->key_cdev);
+    printk("cdev_del success!\n");
     unregister_chrdev_region(key_dev->key_cdev->dev, 1);
-    kfree(key_dev->key_cdev);
+    printk("unregister_chrdev_region success!\n");
     gpio_free(key_dev->gpio);
-    kfree(key_dev);
+    printk("gpio_free success!\n");
     return 0;
 }
 
@@ -286,6 +264,7 @@ static int key_drv_probe(struct platform_device *device)
     {
         return -EINVAL;
     }
+    printk("%s status okey!\n", device->name);
     //分配设备结构体空间
     key_dev = kmalloc(sizeof(struct key_dev_t), GFP_KERNEL);
     if(key_dev == NULL )
@@ -295,18 +274,19 @@ static int key_drv_probe(struct platform_device *device)
     }
     printk("key_dev kmalloc successfully!\n");
     key_dev->key_pdev = device;
+    key_dev->cls = key_cls;
     retvalue = key_dev_init(key_dev);
     if(retvalue != 0)
     {
         goto freekey_dev;
     }
     key_dev_count++;
-    key_dev->cls = key_cls;
     printk("%s probe() success!\r\n",key_dev->key_pdev->name);
     return 0;
 
 freekey_dev:
-    kfree(key_dev);
+    if (key_dev != NULL)
+        kfree(key_dev);
     return retvalue;
 }
 
@@ -314,7 +294,11 @@ static int key_drv_remove(struct platform_device *device)
 {
     /* 注销字符设备 */
     struct key_dev_t *key_dev = container_of(&(device), struct key_dev_t, key_pdev);
+    printk("%s remove() key_dev address %d!\r\n",key_dev->key_pdev->name,(int)key_dev);
     key_drv_deinit(key_dev);
+    if (key_dev != NULL)
+        kfree(key_dev);
+    printk("kfree(key_dev) success!\n");
     key_dev_count--;
     printk("%s remove() success!\r\n",key_dev->key_pdev->name);
     return 0;
@@ -324,6 +308,13 @@ static int __init key_drv_init(void)
 {
     int retvalue = 0;
 
+    key_cls = class_create(THIS_MODULE, "key_drv");
+    if(key_cls == NULL)
+    {
+        pr_err("create key_drv class failed! \n");
+        return -EIO;
+    }
+    printk("class_create success!\n");
     /* 注册platform驱动 */
     retvalue = platform_driver_register(&key_platform_driver);
     if(retvalue != 0)
@@ -332,24 +323,16 @@ static int __init key_drv_init(void)
         return -EIO;
     }
     printk("key platform driver register success!\n");
-    key_cls = class_create(THIS_MODULE, "key_drv");
-    if(key_cls == NULL)
-    {
-        pr_err("create key_drv class failed! \n");
-        goto pdrvunrigester;
-    }
     return 0;
-pdrvunrigester:
-    platform_driver_unregister(&key_platform_driver);
-    return -EIO;
 }
 
 static void __exit key_drv_exit(void)
 {
     /* 注销platform驱动 */
     platform_driver_unregister(&key_platform_driver);
-    class_destroy(key_cls);
     printk("key platform driver unregister success!\n");
+    class_destroy(key_cls);
+    printk("class_destroy success!\n");
 }
 
 
