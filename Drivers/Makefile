@@ -10,9 +10,9 @@ CURRENT_PATH := $(shell pwd)
 ROOTFS := /home/wt/Linux/nfs/rootfs
 NTFS := /home/wt/Linux/nfs/
 TFTP := /home/wt/Linux/tftp/
-obj-m += leddrv.o
-#leddrv.ko 有testdrv.o和led.o生成
-leddrv-objs = testdrv.o # led.o
+obj-m += keydrv.o
+#keydrv.ko 有testdrv.o和led.o生成
+keydrv-objs = testkey.o # led.o
 build: kernel_modules
 
 kernel_modules:

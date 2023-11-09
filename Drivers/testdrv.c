@@ -123,12 +123,7 @@ int testdrv_probe(struct platform_device *device)
     sema_init(&led_dev_0.sem,1);
     /* 注册字符设备驱动 */
     /* 查找设备结点 */
-    led_dev_0.np = of_find_compatible_node(NULL , NULL , "led_gpio");
-    if (led_dev_0.np == NULL)
-    {
-        pr_err("find device node failed\n");
-    }
-    printk("find device node successfully! \n");
+    led_dev_0.np = device->dev.of_node;
     /* 解析gpio属性 */
     led_dev_0.gpio = of_get_named_gpio(led_dev_0.np, "gpio", 0);
     if (led_dev_0.gpio == 0)
