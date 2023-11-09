@@ -38,7 +38,7 @@ const struct of_device_id keys_of_match_table[] = {
     {.compatible = "key_gpio",},
     {},
 };
-
+struct key_dev_t **key_devs;
 /* private function declear */
 // file_operation functions
 static int key_drv_open(struct inode *inode, struct file *filp);
