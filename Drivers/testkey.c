@@ -172,7 +172,7 @@ static int key_dev_init(struct key_dev_t *key_dev)
     struct device_node *np = key_dev->key_pdev->dev.of_node;
 
     /* 获取gpio号 */
-    key_dev->gpio = of_get_named_gpio(np, "gpios", 0);
+    key_dev->gpio = of_get_named_gpio(np, "key-gpio", 0);
     if (key_dev->gpio <= 0)
     {
         pr_err("get gpio failed\n");
@@ -226,8 +226,8 @@ static int key_dev_init(struct key_dev_t *key_dev)
         }
     #endif
     printk("key register dev_t success! major=%d,minor=%d\r\n", MAJOR(key_dev->key_cdev->dev), MINOR(key_dev->key_cdev->dev));
-    /*组成字符设备*/
-    key_dev->key_cdev->ops = &key_drv_fop;
+    /*注册字符设备*/
+    cdev_init(key_dev->key_cdev, &key_drv_fop);
     retvalue = cdev_add(key_dev->key_cdev, key_dev->key_cdev->dev, 1);
     if(retvalue != 0) 
     {
@@ -272,8 +272,22 @@ static int key_drv_deinit(struct key_dev_t *key_dev)
 static int key_drv_probe(struct platform_device *device)
 {
     int retvalue = 0;
+    const char *str;
+    struct device_node *np = device->dev.of_node;
+    struct key_dev_t *key_dev;
 
-    struct key_dev_t *key_dev = kmalloc(sizeof(struct key_dev_t), GFP_KERNEL);//分配设备结构体空间
+    //check status
+    retvalue = of_property_read_string(np, "status", &str);
+    if(retvalue < 0)
+    {
+        return -EINVAL;
+    }
+    if(strcmp(str, "okay"))
+    {
+        return -EINVAL;
+    }
+    //分配设备结构体空间
+    key_dev = kmalloc(sizeof(struct key_dev_t), GFP_KERNEL);
     if(key_dev == NULL )
     {
         pr_err("key_dev kmalloc failed! \n");
@@ -287,6 +301,7 @@ static int key_drv_probe(struct platform_device *device)
         goto freekey_dev;
     }
     key_dev_count++;
+    key_dev->cls = key_cls;
     printk("%s probe() success!\r\n",key_dev->key_pdev->name);
     return 0;
 

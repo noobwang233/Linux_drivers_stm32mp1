@@ -38,21 +38,21 @@
 	};
 
 	led@0{
-		num = <0>
+		num = <0>;
 		compatible = "led_gpio";
 		status = "okay";
 		gpio = <&gpioi 0 GPIO_ACTIVE_LOW>;
 	};
 
 	led@1{
-		num = <1>
+		num = <1>;
 		compatible = "led_gpio";
 		status = "okay";
 		gpio = <&gpiof 3 GPIO_ACTIVE_LOW>;
 	};
 
 	key@0{
-		num = <0>
+		num = <0>;
 		compatible = "key_gpio";
 		status = "okay";
 		key-gpio = <&gpiog 3 GPIO_ACTIVE_LOW>;
@@ -62,7 +62,7 @@
 	};
 
 	key@1{
-		num = <1>
+		num = <1>;
 		compatible = "key_gpio";
 		status = "okay";
 		key-gpio = <&gpioh 7 GPIO_ACTIVE_LOW>;
