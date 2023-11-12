@@ -1,3 +1,4 @@
+#include "linux/printk.h"
 #include <linux/kernel.h>
 #include <linux/types.h>   // 定义了ssize_t的头文件
 #include <linux/ide.h>
@@ -17,6 +18,8 @@
 #include <linux/string.h>
 
 #define KEY_MAJOR 234
+#define DEV_COUNT 2
+
 /*private date*/
 static u8 key_dev_count = 0; /* 设备计数 */
 static struct class *key_cls;//设备类
@@ -38,7 +41,9 @@ const struct of_device_id keys_of_match_table[] = {
     {.compatible = "key_gpio",},
     {},
 };
-struct key_dev_t **key_devs;
+struct key_dev_t *key_devs[DEV_COUNT] = {0};
+
+
 /* private function declear */
 // file_operation functions
 static int key_drv_open(struct inode *inode, struct file *filp);
@@ -51,8 +56,8 @@ static int key_drv_remove(struct platform_device *device);
 static int __init key_drv_init(void);
 static void __exit key_drv_exit(void);
 //private key init and deinit function
-static int key_dev_init(struct key_dev_t *key_dev);
-static int key_drv_deinit(struct key_dev_t *key_dev);
+static int key_dev_init(struct key_dev_t **key_devs, u32 index);
+static int key_drv_deinit(struct key_dev_t **key_devs, u32 index);
 //
 
 
@@ -139,43 +144,42 @@ static ssize_t key_drv_write(struct file *filp, const char __user *buf, size_t c
 /*
 key_dev: 按键设备的结构体指针
 */
-static int key_dev_init(struct key_dev_t *key_dev)
+static int key_dev_init(struct key_dev_t **key_devs, u32 index)
 {
     int retvalue;
-
-    struct device_node *np = key_dev->key_pdev->dev.of_node;
+    struct device_node *np = key_devs[index]->key_pdev->dev.of_node;
 
     /* 获取gpio号 */
-    key_dev->gpio = of_get_named_gpio(np, "key-gpio", 0);
-    if (key_dev->gpio <= 0)
+    key_devs[index]->gpio = of_get_named_gpio(np, "key-gpio", 0);
+    if (key_devs[index]->gpio <= 0)
     {
         pr_err("get gpio failed\n");
         return -EIO;
     }
-    printk("get gpio %d successfully! \n", key_dev->gpio);
+    printk("get gpio %d successfully! \n", key_devs[index]->gpio);
 
     /* 申请gpio */
-    retvalue = gpio_request(key_dev->gpio, "key_gpio");
+    retvalue = gpio_request(key_devs[index]->gpio, "key_gpio");
     if (retvalue != 0)
     {
         pr_err("request gpio failed\n");
         return -EIO;
     }
-    printk("request gpio %d successfully! \n", key_dev->gpio);
+    printk("request gpio %d successfully! \n", key_devs[index]->gpio);
     /* 设置为输入 */
-    retvalue = gpio_direction_input(key_dev->gpio);
+    retvalue = gpio_direction_input(key_devs[index]->gpio);
     if (retvalue != 0)
     {
-        pr_err("set gpio %d input failed! \n", key_dev->gpio);
+        pr_err("set gpio %d input failed! \n", key_devs[index]->gpio);
         goto freegpio;
     }
-    printk("set gpio %d input successfully! \n", key_dev->gpio);
+    printk("set gpio %d input successfully! \n", key_devs[index]->gpio);
 
 
     
     /* 使用cdev注册字符设备 */
-    key_dev->key_cdev = cdev_alloc();//申请cdev字符设备的空间
-    if(key_dev->key_cdev == NULL )
+    key_devs[index]->key_cdev = cdev_alloc();//申请cdev字符设备的空间
+    if(key_devs[index]->key_cdev == NULL )
     {
         pr_err("key_dev key_cdev kmalloc failed! \n");
         goto freegpio;
@@ -184,27 +188,32 @@ static int key_dev_init(struct key_dev_t *key_dev)
 
     /*生成设备号*/
     #ifdef KEY_MAJOR
-        key_dev->key_cdev->dev = MKDEV(KEY_MAJOR, key_dev_count);
-        retvalue = register_chrdev_region(key_dev->key_cdev->dev, 1, key_dev->key_pdev->name);
+        key_devs[index]->key_cdev->dev = MKDEV(KEY_MAJOR, index);
+        retvalue = register_chrdev_region(key_devs[index]->key_cdev->dev, 1, key_devs[index]->key_pdev->name);
         if(retvalue != 0)
         {
-            pr_err("key_dev dev_t register failed! \n");
-            goto freegpio;
+            pr_err("key_dev dev_t register failed! start alloc register!\n");
+            retvalue = alloc_chrdev_region(&(key_devs[index]->key_cdev->dev), 0, 1, key_devs[index]->key_pdev->name);
+            if(retvalue != 0)
+            {
+                pr_err("key_dev dev_t register failed! \n");
+                goto freecdev;
+            }
         }
     #else
-        retvalue = alloc_chrdev_region(&(key_dev->key_cdev->dev), 0, 1, key_dev->key_pdev->name);
+        retvalue = alloc_chrdev_region(&(key_devs[index]->key_cdev->dev), 0, 1, key_devs[index]->key_pdev->name);
         if(retvalue != 0)
         {
             pr_err("key_dev dev_t register failed! \n");
             goto freecdev;
         }
     #endif
-    printk("key register dev_t success! major=%d,minor=%d\r\n", MAJOR(key_dev->key_cdev->dev), MINOR(key_dev->key_cdev->dev));
+    printk("key register dev_t success! major=%d,minor=%d\r\n", MAJOR(key_devs[index]->key_cdev->dev), MINOR(key_devs[index]->key_cdev->dev));
     /*注册字符设备*/
-    key_dev->key_cdev->owner = THIS_MODULE;
-    cdev_init(key_dev->key_cdev, &key_drv_fop);
+    key_devs[index]->key_cdev->owner = THIS_MODULE;
+    cdev_init(key_devs[index]->key_cdev, &key_drv_fop);
     printk("cdev_init success!\n");
-    retvalue = cdev_add(key_dev->key_cdev, key_dev->key_cdev->dev, 1);
+    retvalue = cdev_add(key_devs[index]->key_cdev, key_devs[index]->key_cdev->dev, 1);
     if(retvalue != 0) 
     {
         pr_err("cannot register cdev driver\n");
@@ -212,47 +221,62 @@ static int key_dev_init(struct key_dev_t *key_dev)
     }
     printk("cdev_add success!\n");
     /*生成设备节点*/
-    key_dev->dev = device_create(key_dev->cls, NULL,  key_dev->key_cdev->dev,  NULL,  "key_dev_%d", key_dev_count);
-    if(key_dev->dev == NULL)
+    key_devs[index]->dev = device_create(key_devs[index]->cls, NULL,  key_devs[index]->key_cdev->dev,  NULL,  "key_dev_%d", index);
+    if(key_devs[index]->dev == NULL)
     {
         pr_err("device_create failed!\n");
         goto delcdev;
     }
-    printk("key_dev_%d create success!\r\n", key_dev_count);
+    printk("key_dev_%d create success!\r\n", index);
     /* 初始化设备自旋锁*/
-    spin_lock_init(&key_dev->lock);
-    key_dev->status = true;
+    spin_lock_init(&key_devs[index]->lock);
+    key_devs[index]->status = true;
     return 0;
 
 //错误处理
 delcdev:
-    cdev_del(key_dev->key_cdev);
+    cdev_del(key_devs[index]->key_cdev);
 freedevt:
-    unregister_chrdev_region(key_dev->key_cdev->dev, 1);
+    unregister_chrdev_region(key_devs[index]->key_cdev->dev, 1);
+freecdev:
+    if (key_devs[index]->key_cdev != NULL)
+    {
+        kfree(key_devs[index]->key_cdev);
+    }
 freegpio:
-    gpio_free(key_dev->gpio);
+    gpio_free(key_devs[index]->gpio);
     return -EIO;
 }
 
-static int key_drv_deinit(struct key_dev_t *key_dev)
+static int key_drv_deinit(struct key_dev_t **key_devs, u32 index)
 {
-    device_destroy(key_dev->cls, key_dev->key_cdev->dev);
+
+    device_destroy(key_devs[index]->cls, key_devs[index]->key_cdev->dev);
     printk("device_destroy success!\n");
-    cdev_del(key_dev->key_cdev);
+    cdev_del(key_devs[index]->key_cdev);
     printk("cdev_del success!\n");
-    unregister_chrdev_region(key_dev->key_cdev->dev, 1);
+    unregister_chrdev_region(key_devs[index]->key_cdev->dev, 1);
     printk("unregister_chrdev_region success!\n");
-    gpio_free(key_dev->gpio);
+    if (key_devs[index]->key_cdev != NULL)
+    {
+        kfree(key_devs[index]->key_cdev);
+    }
+    gpio_free(key_devs[index]->gpio);
     printk("gpio_free success!\n");
+    if (key_devs[index] != NULL)
+    {
+        kfree(key_devs[index]);
+        printk("kfree(key_devs[index]) success!\n");
+    }
     return 0;
 }
 
 static int key_drv_probe(struct platform_device *device)
 {
     int retvalue = 0;
+    u32 index;
     const char *str;
     struct device_node *np = device->dev.of_node;
-    struct key_dev_t *key_dev;
 
     //check status
     retvalue = of_property_read_string(np, "status", &str);
@@ -265,42 +289,65 @@ static int key_drv_probe(struct platform_device *device)
         return -EINVAL;
     }
     printk("%s status okey!\n", device->name);
-    //分配设备结构体空间
-    key_dev = kmalloc(sizeof(struct key_dev_t), GFP_KERNEL);
-    if(key_dev == NULL )
+    //get index
+    retvalue = of_property_read_u32_array(np, "num", &index, 1);
+    if(retvalue < 0)
     {
-        pr_err("key_dev kmalloc failed! \n");
+        return -EINVAL;
+    }
+    printk("get index = %d \n", index);
+    if(key_devs[index] != NULL)
+    {
+        printk("key_devs[index] != NULL, start deinit!\n");
+        key_drv_deinit(key_devs, index);
+    }
+    //分配设备结构体空间
+    key_devs[index] = kmalloc(sizeof(struct key_dev_t), GFP_KERNEL);
+    if(key_devs[index] == NULL )
+    {
+        pr_err("key_devs[index] kmalloc failed! \n");
         return -EIO;
     }
     printk("key_dev kmalloc successfully!\n");
-    key_dev->key_pdev = device;
-    key_dev->cls = key_cls;
-    retvalue = key_dev_init(key_dev);
+    key_devs[index]->key_pdev = device;
+    key_devs[index]->cls = key_cls;
+    retvalue = key_dev_init(key_devs, index);
     if(retvalue != 0)
     {
         goto freekey_dev;
     }
+    printk("%s probe() success!\r\n",key_devs[index]->key_pdev->name);
     key_dev_count++;
-    printk("%s probe() success!\r\n",key_dev->key_pdev->name);
     return 0;
 
 freekey_dev:
-    if (key_dev != NULL)
-        kfree(key_dev);
+    if (key_devs[index] != NULL)
+        kfree(key_devs[index]);
     return retvalue;
 }
 
 static int key_drv_remove(struct platform_device *device)
 {
+    u32 index;
+
+    for(index = 0 ; index <= DEV_COUNT; index++)
+    {
+        if(key_devs[index] != NULL)
+        {
+            if(!strcmp(key_devs[index]->key_pdev->name, device->name))
+                break;
+        }
+    }
+    if(index >= DEV_COUNT)
+    {
+        pr_err("can not find dev in dev list!\n");
+        return -EIO;
+    }
     /* 注销字符设备 */
-    struct key_dev_t *key_dev = container_of(&(device), struct key_dev_t, key_pdev);
-    printk("%s remove() key_dev address %d!\r\n",key_dev->key_pdev->name,(int)key_dev);
-    key_drv_deinit(key_dev);
-    if (key_dev != NULL)
-        kfree(key_dev);
-    printk("kfree(key_dev) success!\n");
+    printk("%s remove() key_dev address %d!\r\n",key_devs[index]->key_pdev->name,(int)key_devs[index]);
+    key_drv_deinit(key_devs, index);
+    printk("%s remove() success!\r\n",key_devs[index]->key_pdev->name);
     key_dev_count--;
-    printk("%s remove() success!\r\n",key_dev->key_pdev->name);
     return 0;
 }
 
