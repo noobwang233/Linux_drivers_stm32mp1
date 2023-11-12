@@ -26,7 +26,7 @@ static struct class *key_cls;//设备类
 /* device struct 设备结构体*/
 struct key_dev_t
 {
-    unsigned int minor;
+    dev_t dt;
     struct platform_device *key_pdev;
     int gpio; /* key 所使用的 GPIO 编号 */
     spinlock_t lock; /*设备互斥访问自旋锁*/
@@ -188,12 +188,12 @@ static int key_dev_init(struct key_dev_t **key_devs, u32 index)
 
     /*生成设备号*/
     #ifdef KEY_MAJOR
-        key_devs[index]->key_cdev->dev = MKDEV(KEY_MAJOR, index);
-        retvalue = register_chrdev_region(key_devs[index]->key_cdev->dev, 1, key_devs[index]->key_pdev->name);
+        key_devs[index]->dt = MKDEV(KEY_MAJOR, index);
+        retvalue = register_chrdev_region(key_devs[index]->dt, 1, key_devs[index]->key_pdev->name);
         if(retvalue != 0)
         {
             pr_err("key_dev dev_t register failed! start alloc register!\n");
-            retvalue = alloc_chrdev_region(&(key_devs[index]->key_cdev->dev), 0, 1, key_devs[index]->key_pdev->name);
+            retvalue = alloc_chrdev_region(&(key_devs[index]->dt), 0, 1, key_devs[index]->key_pdev->name);
             if(retvalue != 0)
             {
                 pr_err("key_dev dev_t register failed! \n");
@@ -201,19 +201,19 @@ static int key_dev_init(struct key_dev_t **key_devs, u32 index)
             }
         }
     #else
-        retvalue = alloc_chrdev_region(&(key_devs[index]->key_cdev->dev), 0, 1, key_devs[index]->key_pdev->name);
+        retvalue = alloc_chrdev_region(&(key_devs[index]->dt), 0, 1, key_devs[index]->key_pdev->name);
         if(retvalue != 0)
         {
             pr_err("key_dev dev_t register failed! \n");
             goto freecdev;
         }
     #endif
-    printk("key register dev_t success! major=%d,minor=%d\r\n", MAJOR(key_devs[index]->key_cdev->dev), MINOR(key_devs[index]->key_cdev->dev));
+    printk("key register dev_t success! major=%d,minor=%d\r\n", MAJOR(key_devs[index]->dt), MINOR(key_devs[index]->dt));
     /*注册字符设备*/
     key_devs[index]->key_cdev->owner = THIS_MODULE;
     cdev_init(key_devs[index]->key_cdev, &key_drv_fop);
     printk("cdev_init success!\n");
-    retvalue = cdev_add(key_devs[index]->key_cdev, key_devs[index]->key_cdev->dev, 1);
+    retvalue = cdev_add(key_devs[index]->key_cdev, key_devs[index]->dt, 1);
     if(retvalue != 0) 
     {
         pr_err("cannot register cdev driver\n");
@@ -221,7 +221,7 @@ static int key_dev_init(struct key_dev_t **key_devs, u32 index)
     }
     printk("cdev_add success!\n");
     /*生成设备节点*/
-    key_devs[index]->dev = device_create(key_devs[index]->cls, NULL,  key_devs[index]->key_cdev->dev,  NULL,  "key_dev_%d", index);
+    key_devs[index]->dev = device_create(key_devs[index]->cls, NULL,  key_devs[index]->dt,  NULL,  "key_dev_%d", index);
     if(key_devs[index]->dev == NULL)
     {
         pr_err("device_create failed!\n");
@@ -237,7 +237,7 @@ static int key_dev_init(struct key_dev_t **key_devs, u32 index)
 delcdev:
     cdev_del(key_devs[index]->key_cdev);
 freedevt:
-    unregister_chrdev_region(key_devs[index]->key_cdev->dev, 1);
+    unregister_chrdev_region(key_devs[index]->dt, 1);
 freecdev:
     if (key_devs[index]->key_cdev != NULL)
     {
@@ -251,11 +251,11 @@ freegpio:
 static int key_drv_deinit(struct key_dev_t **key_devs, u32 index)
 {
 
-    device_destroy(key_devs[index]->cls, key_devs[index]->key_cdev->dev);
+    device_destroy(key_devs[index]->cls, key_devs[index]->dt);
     printk("device_destroy success!\n");
     cdev_del(key_devs[index]->key_cdev);
     printk("cdev_del success!\n");
-    unregister_chrdev_region(key_devs[index]->key_cdev->dev, 1);
+    unregister_chrdev_region(key_devs[index]->dt, 1);
     printk("unregister_chrdev_region success!\n");
     if (key_devs[index]->key_cdev != NULL)
     {
