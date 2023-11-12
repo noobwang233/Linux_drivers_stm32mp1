@@ -70,4 +70,3 @@ linux-4.9.88/.tmp_System.map
 linux-4.9.88/arch/arm/vdso/vdso.so.dbg
 Drivers/Module.symvers
 *.mod.c
-*app

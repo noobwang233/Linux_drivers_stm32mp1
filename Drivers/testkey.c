@@ -84,18 +84,34 @@ static struct platform_driver key_platform_driver = {
 static int key_drv_open(struct inode *inode, struct file *filp)
 {
     unsigned long flags;/*中断标记*/
+    u32 index;
 
-    struct key_dev_t *key_dev = container_of(&(inode->i_cdev), struct key_dev_t, key_cdev);//获取当前打开设备文件对应的设备结构体变量指针
-    filp->private_data = key_dev;
-    spin_lock_irqsave(&(key_dev->lock), flags);//上锁
-    if(key_dev->status != true) //设备忙
+    for(index = 0; index < DEV_COUNT; index++)
     {
-        spin_unlock_irqrestore(&(key_dev->lock), flags);//释放锁
+        if(key_devs[index] != NULL)
+        {
+            if(key_devs[index]->dt == inode->i_cdev->dev)
+                break;
+        }
+    }
+    if(index >= DEV_COUNT)
+    {
+        pr_err("can not find dev data in dev list!\n");
+        return -EIO;
+    }
+    filp->private_data = key_devs[index];
+    //struct key_dev_t *key_dev = container_of(inode->i_cdev, struct key_dev_t, key_cdev);//获取当前打开设备文件对应的设备结构体变量指针
+    printk("open device file: %s",key_devs[index]->key_pdev->name);
+
+    spin_lock_irqsave(&(key_devs[index]->lock), flags);//上锁
+    if(key_devs[index]->status != true) //设备忙
+    {
+        spin_unlock_irqrestore(&(key_devs[index]->lock), flags);//释放锁
         pr_err("key_drv busy!\n");
         return -EBUSY;
     }
-    key_dev->status = false;//占用设备
-    spin_unlock_irqrestore(&(key_dev->lock), flags);//释放锁
+    key_devs[index]->status = false;//占用设备
+    spin_unlock_irqrestore(&(key_devs[index]->lock), flags);//释放锁
     printk("key_drv open!\r\n");
     return 0;
 }

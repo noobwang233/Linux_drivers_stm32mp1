@@ -11,7 +11,7 @@ int main(int argc, char *argv[])
     int fd, retvalue;
     char *filename;
     unsigned char cnt = 0;
-    char writebuf[1];
+    char readbuf[1];
 
     if(argc != 3)
     {
@@ -28,12 +28,13 @@ int main(int argc, char *argv[])
         printf("Can't open file %s\r\n", filename);
         return -1;
     }
-    //传入cmd
-    writebuf[0] = (char)atoi(argv[2]);
-    retvalue = write(fd, writebuf, 1);
+
+    retvalue = read(fd, readbuf, 1);
     if(retvalue < 0){
         printf("write file %s failed!\r\n", filename);
+        return -1;
     }
+    printf("key status: %s \r\n", (readbuf[0] == 0 ? "on":"off"));
 
     /* 模拟占用 25S LED */
     while(1) {
