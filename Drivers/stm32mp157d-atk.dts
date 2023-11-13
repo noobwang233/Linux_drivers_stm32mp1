@@ -41,14 +41,14 @@
 		num = <0>;
 		compatible = "led_gpio";
 		status = "okay";
-		gpio = <&gpioi 0 GPIO_ACTIVE_LOW>;
+		led-gpio = <&gpioi 0 GPIO_ACTIVE_LOW>;
 	};
 
 	led@1{
 		num = <1>;
 		compatible = "led_gpio";
 		status = "okay";
-		gpio = <&gpiof 3 GPIO_ACTIVE_LOW>;
+		led-gpio = <&gpiof 3 GPIO_ACTIVE_LOW>;
 	};
 
 	key@0{

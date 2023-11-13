@@ -29,7 +29,6 @@ struct led_dev_t
     dev_t dt;
     struct platform_device *led_pdev;
     int gpio; /* led 所使用的 GPIO 编号 */
-    int irq; //中断号
     spinlock_t lock;
     bool status; /*设备状态*/
     struct cdev *led_cdev; /*字符设备结构体*/
@@ -82,6 +81,7 @@ static struct platform_driver led_platform_driver = {
 
 static int led_drv_open(struct inode *inode, struct file *filp)
 {
+    unsigned long flags;/*中断标记*/
     u32 index;
 
     for(index = 0; index < DEV_COUNT; index++)
@@ -100,12 +100,27 @@ static int led_drv_open(struct inode *inode, struct file *filp)
     filp->private_data = led_devs[index];
     printk("open device file: %s",led_devs[index]->led_pdev->name);
 
+    spin_lock_irqsave(&(led_devs[index]->lock), flags);//上锁
+    if(led_devs[index]->status != true) //设备忙
+    {
+        spin_unlock_irqrestore(&(led_devs[index]->lock), flags);//释放锁
+        pr_err("led_drv busy!\n");
+        return -EBUSY;
+    }
+    led_devs[index]->status = false;//占用设备
+    spin_unlock_irqrestore(&(led_devs[index]->lock), flags);//释放锁
     printk("led_drv open!\r\n");
     return 0;
 }
 
 static int led_drv_release(struct inode *inode, struct file *filp)
 {
+    unsigned long flags;/*中断标记*/
+    
+    struct led_dev_t *led_dev = filp->private_data;
+    spin_lock_irqsave(&(led_dev->lock), flags);//上锁
+    led_dev->status = true;//释放设备
+    spin_unlock_irqrestore(&(led_dev->lock), flags);//释放锁
     printk("led_drv close!\r\n");
     return 0;
 }
@@ -119,7 +134,7 @@ static ssize_t led_drv_read(struct file *filp, char __user *buf, size_t cnt, lof
 
     value = gpio_get_value(led_dev->gpio);
     /* 向用户空间发送数据 */
-    retvalue = copy_to_user(buf, &value, cnt);
+    retvalue = copy_to_user(buf, &value, 1);
     if(retvalue == 0)
     {
         printk("led_drv send data ok!\r\n");

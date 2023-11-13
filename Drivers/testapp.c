@@ -9,9 +9,11 @@
 int main(int argc, char *argv[])
 {
     int fd, retvalue;
+    int led_fd;
     char *filename;
     unsigned char cnt = 0;
     char readbuf[1];
+    char value = 0;
 
     if(argc != 2)
     {
@@ -33,10 +35,27 @@ int main(int argc, char *argv[])
     {
         retvalue = read(fd, readbuf, 1);
         if(retvalue < 0){
-            printf("write file %s failed!\r\n", filename);
+            printf("read file %s failed!\r\n", filename);
             return -1;
         }
         printf("key status: %s \r\n", (readbuf[0] == 0 ? "on":"off"));
+        led_fd = open("/dev/led_dev_0", O_RDWR);
+        if(led_fd < 0)
+        {
+            printf("Can't open file /dev/led_dev_0\r\n");
+            return -1;
+        }
+        retvalue = write(led_fd, &value, 1);
+        if(retvalue < 0){
+            printf("write file /dev/led_dev_0 failed!\r\n");
+            return -1;
+        }
+        retvalue = close(led_fd);
+        if(retvalue < 0){
+            printf("Can't close file /dev/led_dev_0\r\n");
+            return -1;
+        }
+        value = (value == 1)? 0:1;
     }
 
     /* 关闭设备 */

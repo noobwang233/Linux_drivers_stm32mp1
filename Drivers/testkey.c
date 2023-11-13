@@ -280,6 +280,7 @@ static int key_dev_init(struct key_dev_t **key_devs, u32 index)
     }
     /* 初始化设备自旋锁*/
     spin_lock_init(&key_devs[index]->lock);
+    key_devs[index]->status = true;
     //初始化等待队列
     init_waitqueue_head(&key_devs[index]->wait_list);
     atomic_set(&key_devs[index]->value, 0);
