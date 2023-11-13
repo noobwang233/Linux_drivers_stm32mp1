@@ -17,82 +17,78 @@
 #include <linux/string.h>
 #include <linux/interrupt.h> //中断相关头文件
 
-#define KEY_MAJOR 234
+#define LED_MAJOR 235
 #define DEV_COUNT 2
 
 /*private date*/
-static u8 key_dev_count = 0; /* 设备计数 */
-static struct class *key_cls;//设备类
+static u8 led_dev_count = 0; /* 设备计数 */
+static struct class *led_cls;//设备类
 /* device struct 设备结构体*/
-struct key_dev_t
+struct led_dev_t
 {
     dev_t dt;
-    struct platform_device *key_pdev;
-    int gpio; /* key 所使用的 GPIO 编号 */
+    struct platform_device *led_pdev;
+    int gpio; /* led 所使用的 GPIO 编号 */
     int irq; //中断号
-    spinlock_t lock; /*设备互斥访问自旋锁*/
+    spinlock_t lock;
     bool status; /*设备状态*/
-    atomic_t value; /*按键状态*/
-    struct cdev *key_cdev; /*字符设备结构体*/
+    struct cdev *led_cdev; /*字符设备结构体*/
     struct class *cls;
     struct device *dev;
     wait_queue_head_t wait_list; //等待队列
 };
 // match table
-const struct of_device_id keys_of_match_table[] = {
-    {.compatible = "key_gpio",},
+const struct of_device_id leds_of_match_table[] = {
+    {.compatible = "led_gpio",},
     {},
 };
-struct key_dev_t *key_devs[DEV_COUNT] = {0};
+struct led_dev_t *led_devs[DEV_COUNT] = {0};
 
 
 /* private function declear */
 // file_operation functions
-static int key_drv_open(struct inode *inode, struct file *filp);
-static int key_drv_release(struct inode *inode, struct file *filp);
-static ssize_t key_drv_read(struct file *filp, char __user *buf, size_t cnt, loff_t *offt);
-static ssize_t key_drv_write(struct file *filp, const char __user *buf, size_t cnt, loff_t *offt);
-static int key_drv_probe(struct platform_device *device);
-static int key_drv_remove(struct platform_device *device);
+static int led_drv_open(struct inode *inode, struct file *filp);
+static int led_drv_release(struct inode *inode, struct file *filp);
+static ssize_t led_drv_read(struct file *filp, char __user *buf, size_t cnt, loff_t *offt);
+static ssize_t led_drv_write(struct file *filp, const char __user *buf, size_t cnt, loff_t *offt);
+static int led_drv_probe(struct platform_device *device);
+static int led_drv_remove(struct platform_device *device);
 //module init and exit
-static int __init key_drv_init(void);
-static void __exit key_drv_exit(void);
-//private key init and deinit function
-static int key_dev_init(struct key_dev_t **key_devs, u32 index);
-static int key_drv_deinit(struct key_dev_t **key_devs, u32 index);
-//irq handle function
-irqreturn_t key_irq_handler(int irq, void *dev);
+static int __init led_drv_init(void);
+static void __exit led_drv_exit(void);
+//private led init and deinit function
+static int led_dev_init(struct led_dev_t **led_devs, u32 index);
+static int led_drv_deinit(struct led_dev_t **led_devs, u32 index);
 
 /* 驱动提供的文件操作结构体 */
-static struct file_operations key_drv_fop = {
+static struct file_operations led_drv_fop = {
     .owner = THIS_MODULE,
-    .open = key_drv_open,
-    .release = key_drv_release,
-    .write = key_drv_write,
-    .read = key_drv_read,
+    .open = led_drv_open,
+    .release = led_drv_release,
+    .write = led_drv_write,
+    .read = led_drv_read,
 };
 /* 用于注册平台驱动的platform_driver结构体 */
-static struct platform_driver key_platform_driver = {
-    .probe = key_drv_probe,
-    .remove = key_drv_remove,
+static struct platform_driver led_platform_driver = {
+    .probe = led_drv_probe,
+    .remove = led_drv_remove,
 
     .driver = {
-        .name = "key_drv",
-        .of_match_table = keys_of_match_table,
+        .name = "led_drv",
+        .of_match_table = leds_of_match_table,
     },
 };
 
 
-static int key_drv_open(struct inode *inode, struct file *filp)
+static int led_drv_open(struct inode *inode, struct file *filp)
 {
-    unsigned long flags;/*中断标记*/
     u32 index;
 
     for(index = 0; index < DEV_COUNT; index++)
     {
-        if(key_devs[index] != NULL)
+        if(led_devs[index] != NULL)
         {
-            if(key_devs[index]->dt == inode->i_cdev->dev)
+            if(led_devs[index]->dt == inode->i_cdev->dev)
                 break;
         }
     }
@@ -101,151 +97,147 @@ static int key_drv_open(struct inode *inode, struct file *filp)
         pr_err("can not find dev data in dev list!\n");
         return -EIO;
     }
-    filp->private_data = key_devs[index];
-    //struct key_dev_t *key_dev = container_of(inode->i_cdev, struct key_dev_t, key_cdev);//获取当前打开设备文件对应的设备结构体变量指针
-    printk("open device file: %s",key_devs[index]->key_pdev->name);
+    filp->private_data = led_devs[index];
+    printk("open device file: %s",led_devs[index]->led_pdev->name);
 
-    spin_lock_irqsave(&(key_devs[index]->lock), flags);//上锁
-    if(key_devs[index]->status != true) //设备忙
-    {
-        spin_unlock_irqrestore(&(key_devs[index]->lock), flags);//释放锁
-        pr_err("key_drv busy!\n");
-        return -EBUSY;
-    }
-    key_devs[index]->status = false;//占用设备
-    spin_unlock_irqrestore(&(key_devs[index]->lock), flags);//释放锁
-    printk("key_drv open!\r\n");
+    printk("led_drv open!\r\n");
     return 0;
 }
 
-static int key_drv_release(struct inode *inode, struct file *filp)
+static int led_drv_release(struct inode *inode, struct file *filp)
 {
-    unsigned long flags;/*中断标记*/
-    
-    struct key_dev_t *key_dev = filp->private_data;
-    spin_lock_irqsave(&(key_dev->lock), flags);//上锁
-    key_dev->status = true;//释放设备
-    spin_unlock_irqrestore(&(key_dev->lock), flags);//释放锁
-    printk("key_drv close!\r\n");
+    printk("led_drv close!\r\n");
     return 0;
 }
 
-static ssize_t key_drv_read(struct file *filp, char __user *buf, size_t cnt, loff_t *offt)
+static ssize_t led_drv_read(struct file *filp, char __user *buf, size_t cnt, loff_t *offt)
 {
     int retvalue = 0;
     u8 value = 0;
-    struct key_dev_t *key_dev = filp->private_data;
+    struct led_dev_t *led_dev = filp->private_data;
 
-    /*判断当前文件描述符是阻塞还是非阻塞*/
-    if(filp->f_flags & O_NONBLOCK)
-    {
-        /*非阻塞访问*/
-        printk(" noblock read!\r\n");
-    }
-    else
-    {
-        /* 阻塞访问 */
-        /* 加入等待队列，当event不为0时，才会被唤醒 */
-        printk(" block read!\r\n");
-        retvalue = wait_event_interruptible(key_dev->wait_list, atomic_read(&key_dev->value) != 0);
-        if(retvalue)
-            return retvalue;
-    }
-    value = gpio_get_value(key_dev->gpio);
+
+    value = gpio_get_value(led_dev->gpio);
     /* 向用户空间发送数据 */
     retvalue = copy_to_user(buf, &value, cnt);
     if(retvalue == 0)
     {
-        printk("key_drv send data ok!\r\n");
+        printk("led_drv send data ok!\r\n");
     }
     else
     {
-        printk("key_drv send data failed!\r\n");
+        printk("led_drv send data failed!\r\n");
         return -EIO;
     }
-    atomic_set(&key_dev->value, 0);
-    printk("read key_drv finish!\r\n");
+    printk("read led_drv finish!\r\n");
     return 0;
 }
 
-static ssize_t key_drv_write(struct file *filp, const char __user *buf, size_t cnt, loff_t *offt)
+static ssize_t led_drv_write(struct file *filp, const char __user *buf, size_t cnt, loff_t *offt)
 {
-    //empty
+    int retvalue = 0;
+    u8 cmd = 0;
+    struct led_dev_t *led_dev = filp->private_data;
+    
+    /* 从用户空间读取数据 */
+    retvalue = copy_from_user(&cmd, buf, cnt);
+    if(retvalue == 0)
+    {
+        printk("led_drv send data ok!\r\n");
+    }
+    else
+    {
+        printk("led_drv send data failed!\r\n");
+        return -EIO;
+    }
+    switch (cmd)
+    {
+    case 0:// GPIO_ACTIVE_LOW
+        gpio_set_value(led_dev->gpio, 0);
+        printk("led on\n");
+        break;
+    case 1:
+        gpio_set_value(led_dev->gpio, 1);
+        printk("led off\n");
+        break;
+    default:
+        gpio_set_value(led_dev->gpio, (gpio_get_value(led_dev->gpio)==0? 1:0));
+        printk("led trigger\n");
+        break;
+    }
     return 0;
 }
 /*
-key_dev: 按键设备的结构体指针
+led_dev: 按键设备的结构体指针
 */
-static int key_dev_init(struct key_dev_t **key_devs, u32 index)
+static int led_dev_init(struct led_dev_t **led_devs, u32 index)
 {
     int retvalue;
-    struct device_node *np = key_devs[index]->key_pdev->dev.of_node;
+    struct device_node *np = led_devs[index]->led_pdev->dev.of_node;
 
     /* 获取gpio号 */
-    key_devs[index]->gpio = of_get_named_gpio(np, "key-gpio", 0);
-    if (key_devs[index]->gpio <= 0)
+    led_devs[index]->gpio = of_get_named_gpio(np, "led-gpio", 0);
+    if (led_devs[index]->gpio <= 0)
     {
         pr_err("get gpio failed\n");
         return -EIO;
     }
-    printk("get gpio %d successfully! \n", key_devs[index]->gpio);
+    printk("get gpio %d successfully! \n", led_devs[index]->gpio);
 
     /* 申请gpio */
-    retvalue = gpio_request(key_devs[index]->gpio, "key_gpio");
+    retvalue = gpio_request(led_devs[index]->gpio, "led_gpio");
     if (retvalue != 0)
     {
         pr_err("request gpio failed\n");
         return -EIO;
     }
-    printk("request gpio %d successfully! \n", key_devs[index]->gpio);
+    printk("request gpio %d successfully! \n", led_devs[index]->gpio);
     /* 设置为输入 */
-    retvalue = gpio_direction_input(key_devs[index]->gpio);
+    retvalue = gpio_direction_output(led_devs[index]->gpio, 1);
     if (retvalue != 0)
     {
-        pr_err("set gpio %d input failed! \n", key_devs[index]->gpio);
+        pr_err("set gpio %d input failed! \n", led_devs[index]->gpio);
         goto freegpio;
     }
-    printk("set gpio %d input successfully! \n", key_devs[index]->gpio);
+    printk("set gpio %d input successfully! \n", led_devs[index]->gpio);
 
-
-    
     /* 使用cdev注册字符设备 */
-    key_devs[index]->key_cdev = cdev_alloc();//申请cdev字符设备的空间
-    if(key_devs[index]->key_cdev == NULL )
+    led_devs[index]->led_cdev = cdev_alloc();//申请cdev字符设备的空间
+    if(led_devs[index]->led_cdev == NULL )
     {
-        pr_err("key_dev key_cdev kzalloc failed! \n");
+        pr_err("led_dev led_cdev kzalloc failed! \n");
         goto freegpio;
     }
-    printk("key_dev key_cdev kzalloc successfully!\n");
+    printk("led_dev led_cdev kzalloc successfully!\n");
 
     /*生成设备号*/
-    #ifdef KEY_MAJOR
-        key_devs[index]->dt = MKDEV(KEY_MAJOR, index);
-        retvalue = register_chrdev_region(key_devs[index]->dt, 1, key_devs[index]->key_pdev->name);
+    #ifdef LED_MAJOR
+        led_devs[index]->dt = MKDEV(LED_MAJOR, index);
+        retvalue = register_chrdev_region(led_devs[index]->dt, 1, led_devs[index]->led_pdev->name);
         if(retvalue != 0)
         {
-            pr_err("key_dev dev_t register failed! start alloc register!\n");
-            retvalue = alloc_chrdev_region(&(key_devs[index]->dt), 0, 1, key_devs[index]->key_pdev->name);
+            pr_err("led_dev dev_t register failed! start alloc register!\n");
+            retvalue = alloc_chrdev_region(&(led_devs[index]->dt), 0, 1, led_devs[index]->led_pdev->name);
             if(retvalue != 0)
             {
-                pr_err("key_dev dev_t register failed! \n");
+                pr_err("led_dev dev_t register failed! \n");
                 goto freecdev;
             }
         }
     #else
-        retvalue = alloc_chrdev_region(&(key_devs[index]->dt), 0, 1, key_devs[index]->key_pdev->name);
+        retvalue = alloc_chrdev_region(&(led_devs[index]->dt), 0, 1, led_devs[index]->led_pdev->name);
         if(retvalue != 0)
         {
-            pr_err("key_dev dev_t register failed! \n");
+            pr_err("led_dev dev_t register failed! \n");
             goto freecdev;
         }
     #endif
-    printk("key register dev_t success! major=%d,minor=%d\r\n", MAJOR(key_devs[index]->dt), MINOR(key_devs[index]->dt));
+    printk("led register dev_t success! major=%d,minor=%d\r\n", MAJOR(led_devs[index]->dt), MINOR(led_devs[index]->dt));
     /*注册字符设备*/
-    key_devs[index]->key_cdev->owner = THIS_MODULE;
-    cdev_init(key_devs[index]->key_cdev, &key_drv_fop);
+    led_devs[index]->led_cdev->owner = THIS_MODULE;
+    cdev_init(led_devs[index]->led_cdev, &led_drv_fop);
     printk("cdev_init success!\n");
-    retvalue = cdev_add(key_devs[index]->key_cdev, key_devs[index]->dt, 1);
+    retvalue = cdev_add(led_devs[index]->led_cdev, led_devs[index]->dt, 1);
     if(retvalue != 0) 
     {
         pr_err("cannot register cdev driver\n");
@@ -253,80 +245,56 @@ static int key_dev_init(struct key_dev_t **key_devs, u32 index)
     }
     printk("cdev_add success!\n");
     /*生成设备节点*/
-    key_devs[index]->dev = device_create(key_devs[index]->cls, NULL,  key_devs[index]->dt,  NULL,  "key_dev_%d", index);
-    if(key_devs[index]->dev == NULL)
+    led_devs[index]->dev = device_create(led_devs[index]->cls, NULL,  led_devs[index]->dt,  NULL,  "led_dev_%d", index);
+    if(led_devs[index]->dev == NULL)
     {
         pr_err("device_create failed!\n");
         goto delcdev;
     }
-    printk("key_dev_%d create success!\r\n", index);
-    //irq init
-    key_devs[index]->irq = gpio_to_irq(key_devs[index]->gpio);//get irq num
-    if(key_devs[index]->irq < 0)
-    {
-        pr_err("get irq num failed!\n");
-        goto destroydev;
-    }
-    printk("get irq num %d success!\r\n", key_devs[index]->irq);
-    retvalue = request_irq(key_devs[index]->irq, key_irq_handler, IRQF_TRIGGER_FALLING, key_devs[index]->key_pdev->name, key_devs[index]);
-    if(retvalue != 0) 
-    {
-        pr_err("request irq failed!\n");
-        if(retvalue == -EBUSY) 
-        {
-            pr_err("irq already requset!\n");
-        }
-        goto destroydev;
-    }
+    printk("led_dev_%d create success!\r\n", index);
     /* 初始化设备自旋锁*/
-    spin_lock_init(&key_devs[index]->lock);
-    //初始化等待队列
-    init_waitqueue_head(&key_devs[index]->wait_list);
-    atomic_set(&key_devs[index]->value, 0);
+    spin_lock_init(&led_devs[index]->lock);
+    led_devs[index]->status = true;
     return 0;
 
 //错误处理
-destroydev:
-    device_destroy(key_devs[index]->cls, key_devs[index]->dt);
 delcdev:
-    cdev_del(key_devs[index]->key_cdev);
+    cdev_del(led_devs[index]->led_cdev);
 freedevt:
-    unregister_chrdev_region(key_devs[index]->dt, 1);
+    unregister_chrdev_region(led_devs[index]->dt, 1);
 freecdev:
-    if (key_devs[index]->key_cdev != NULL)
+    if (led_devs[index]->led_cdev != NULL)
     {
-        kfree(key_devs[index]->key_cdev);
+        kfree(led_devs[index]->led_cdev);
     }
 freegpio:
-    gpio_free(key_devs[index]->gpio);
+    gpio_free(led_devs[index]->gpio);
     return -EIO;
 }
 
-static int key_drv_deinit(struct key_dev_t **key_devs, u32 index)
+static int led_drv_deinit(struct led_dev_t **led_devs, u32 index)
 {
-    free_irq(key_devs[index]->irq,key_devs[index]);
-    printk("free_irq success!\n");
-    device_destroy(key_devs[index]->cls, key_devs[index]->dt);
+    device_destroy(led_devs[index]->cls, led_devs[index]->dt);
     printk("device_destroy success!\n");
-    cdev_del(key_devs[index]->key_cdev);
+    cdev_del(led_devs[index]->led_cdev);
     printk("cdev_del success!\n");
-    unregister_chrdev_region(key_devs[index]->dt, 1);
+    unregister_chrdev_region(led_devs[index]->dt, 1);
     printk("unregister_chrdev_region success!\n");
-    if (key_devs[index]->key_cdev != NULL)
+    if (led_devs[index]->led_cdev != NULL)
     {
-        kfree(key_devs[index]->key_cdev);
+        kfree(led_devs[index]->led_cdev);
     }
-    gpio_free(key_devs[index]->gpio);
+    gpio_free(led_devs[index]->gpio);
     printk("gpio_free success!\n");
-    if (key_devs[index] != NULL)
+    if (led_devs[index] != NULL)
     {
-        kfree(key_devs[index]);
-        printk("kfree(key_devs[index]) success!\n");
+        kfree(led_devs[index]);
+        printk("kfree(led_devs[index]) success!\n");
     }
     return 0;
 }
 
-static int key_drv_probe(struct platform_device *device)
+static int led_drv_probe(struct platform_device *device)
 {
     int retvalue = 0;
     u32 index;
@@ -343,7 +311,7 @@ static int key_drv_probe(struct platform_device *device)
     {
         return -EINVAL;
     }
-    printk("%s status okey!\n", device->name);
+    printk("%s status oled!\n", device->name);
     //get index
     retvalue = of_property_read_u32_array(np, "num", &index, 1);
     if(retvalue < 0)
@@ -352,45 +320,45 @@ static int key_drv_probe(struct platform_device *device)
         return -EINVAL;
     }
     printk("get index = %d \n", index);
-    if(key_devs[index] != NULL)
+    if(led_devs[index] != NULL)
     {
-        printk("key_devs[index] != NULL, start deinit!\n");
-        key_drv_deinit(key_devs, index);
+        printk("led_devs[index] != NULL, start deinit!\n");
+        led_drv_deinit(led_devs, index);
     }
     //分配设备结构体空间
-    key_devs[index] = kzalloc(sizeof(struct key_dev_t), GFP_KERNEL);
-    if(key_devs[index] == NULL )
+    led_devs[index] = kzalloc(sizeof(struct led_dev_t), GFP_KERNEL);
+    if(led_devs[index] == NULL )
     {
-        pr_err("key_devs[index] kzalloc failed! \n");
+        pr_err("led_devs[index] kzalloc failed! \n");
         return -EIO;
     }
-    printk("key_dev kzalloc successfully!\n");
-    key_devs[index]->key_pdev = device;
-    key_devs[index]->cls = key_cls;
-    retvalue = key_dev_init(key_devs, index);
+    printk("led_dev kzalloc successfully!\n");
+    led_devs[index]->led_pdev = device;
+    led_devs[index]->cls = led_cls;
+    retvalue = led_dev_init(led_devs, index);
     if(retvalue != 0)
     {
-        goto freekey_dev;
+        goto freeled_dev;
     }
-    printk("%s probe() success!\r\n",key_devs[index]->key_pdev->name);
-    key_dev_count++;
+    printk("%s probe() success!\r\n",led_devs[index]->led_pdev->name);
+    led_dev_count++;
     return 0;
 
-freekey_dev:
-    if (key_devs[index] != NULL)
-        kfree(key_devs[index]);
+freeled_dev:
+    if (led_devs[index] != NULL)
+        kfree(led_devs[index]);
     return retvalue;
 }
 
-static int key_drv_remove(struct platform_device *device)
+static int led_drv_remove(struct platform_device *device)
 {
     u32 index;
 
     for(index = 0 ; index <= DEV_COUNT; index++)
     {
-        if(key_devs[index] != NULL)
+        if(led_devs[index] != NULL)
         {
-            if(!strcmp(key_devs[index]->key_pdev->name, device->name))
+            if(!strcmp(led_devs[index]->led_pdev->name, device->name))
                 break;
         }
     }
@@ -400,55 +368,46 @@ static int key_drv_remove(struct platform_device *device)
         return -EIO;
     }
     /* 注销字符设备 */
-    printk("%s remove() key_dev address %d!\r\n",key_devs[index]->key_pdev->name,(int)key_devs[index]);
-    key_drv_deinit(key_devs, index);
-    printk("%s remove() success!\r\n",key_devs[index]->key_pdev->name);
-    key_dev_count--;
+    printk("%s remove() led_dev address %d!\r\n",led_devs[index]->led_pdev->name,(int)led_devs[index]);
+    led_drv_deinit(led_devs, index);
+    printk("%s remove() success!\r\n",led_devs[index]->led_pdev->name);
+    led_dev_count--;
     return 0;
 }
 
-static int __init key_drv_init(void)
+static int __init led_drv_init(void)
 {
     int retvalue = 0;
 
-    key_cls = class_create(THIS_MODULE, "key_drv");
-    if(key_cls == NULL)
+    led_cls = class_create(THIS_MODULE, "led_drv");
+    if(led_cls == NULL)
     {
-        pr_err("create key_drv class failed! \n");
+        pr_err("create led_drv class failed! \n");
         return -EIO;
     }
     printk("class_create success!\n");
     /* 注册platform驱动 */
-    retvalue = platform_driver_register(&key_platform_driver);
+    retvalue = platform_driver_register(&led_platform_driver);
     if(retvalue != 0)
     {
-        pr_err("key platform driver register failed!\n");
+        pr_err("led platform driver register failed!\n");
         return -EIO;
     }
-    printk("key platform driver register success!\n");
+    printk("led platform driver register success!\n");
     return 0;
 }
 
-static void __exit key_drv_exit(void)
+static void __exit led_drv_exit(void)
 {
     /* 注销platform驱动 */
-    platform_driver_unregister(&key_platform_driver);
-    printk("key platform driver unregister success!\n");
-    class_destroy(key_cls);
+    platform_driver_unregister(&led_platform_driver);
+    printk("led platform driver unregister success!\n");
+    class_destroy(led_cls);
     printk("class_destroy success!\n");
 }
 
-
-irqreturn_t key_irq_handler(int irq, void *dev)
-{
-    printk("%s irq_handler!\n", ((struct key_dev_t *)dev)->key_pdev->name);
-    atomic_set(&((struct key_dev_t *)dev)->value, 1);
-    wake_up_interruptible(&((struct key_dev_t *)dev)->wait_list);
-    return IRQ_RETVAL(IRQ_HANDLED);
-}
-
-module_init(key_drv_init);
-module_exit(key_drv_exit);
+module_init(led_drv_init);
+module_exit(led_drv_exit);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("wt");
