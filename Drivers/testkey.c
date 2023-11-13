@@ -1,4 +1,5 @@
 #include "linux/printk.h"
+#include "scsi/scsi_proto.h"
 #include <linux/kernel.h>
 #include <linux/types.h>   // 定义了ssize_t的头文件
 #include <linux/ide.h>
@@ -16,6 +17,7 @@
 #include <asm/string.h>
 #include <linux/slab.h> //kzalloc头文件
 #include <linux/string.h>
+#include <linux/interrupt.h> //中断相关头文件
 
 #define KEY_MAJOR 234
 #define DEV_COUNT 2
@@ -29,6 +31,7 @@ struct key_dev_t
     dev_t dt;
     struct platform_device *key_pdev;
     int gpio; /* key 所使用的 GPIO 编号 */
+    int irq; //中断号
     spinlock_t lock; /*设备互斥访问自旋锁*/
     bool status; /*设备状态*/
     bool value; /*按键状态*/
@@ -58,8 +61,8 @@ static void __exit key_drv_exit(void);
 //private key init and deinit function
 static int key_dev_init(struct key_dev_t **key_devs, u32 index);
 static int key_drv_deinit(struct key_dev_t **key_devs, u32 index);
-//
-
+//irq handle function
+irqreturn_t key_irq_handler(int irq, void *dev);
 
 /* 驱动提供的文件操作结构体 */
 static struct file_operations key_drv_fop = {
@@ -244,12 +247,32 @@ static int key_dev_init(struct key_dev_t **key_devs, u32 index)
         goto delcdev;
     }
     printk("key_dev_%d create success!\r\n", index);
+    //irq init
+    key_devs[index]->irq = gpio_to_irq(key_devs[index]->gpio);//get irq num
+    if(key_devs[index]->irq < 0)
+    {
+        pr_err("get irq num failed!\n");
+        goto destroydev;
+    }
+    printk("get irq num %d success!\r\n", key_devs[index]->irq);
+    retvalue = request_irq(key_devs[index]->irq, key_irq_handler, IRQF_TRIGGER_FALLING, key_devs[index]->key_pdev->name, key_devs[index]);
+    if(retvalue != 0) 
+    {
+        pr_err("request irq failed!\n");
+        if(retvalue == -EBUSY) 
+        {
+            pr_err("irq already requset!\n");
+        }
+        goto destroydev;
+    }
     /* 初始化设备自旋锁*/
     spin_lock_init(&key_devs[index]->lock);
     key_devs[index]->status = true;
     return 0;
 
 //错误处理
+destroydev:
+    device_destroy(key_devs[index]->cls, key_devs[index]->dt);
 delcdev:
     cdev_del(key_devs[index]->key_cdev);
 freedevt:
@@ -266,7 +289,8 @@ freegpio:
 
 static int key_drv_deinit(struct key_dev_t **key_devs, u32 index)
 {
-
+    free_irq(key_devs[index]->irq,key_devs[index]);
+    printk("free_irq success!\n");
     device_destroy(key_devs[index]->cls, key_devs[index]->dt);
     printk("device_destroy success!\n");
     cdev_del(key_devs[index]->key_cdev);
@@ -399,6 +423,12 @@ static void __exit key_drv_exit(void)
     printk("class_destroy success!\n");
 }
 
+
+irqreturn_t key_irq_handler(int irq, void *dev)
+{
+    printk("%s push!\n", ((struct key_dev_t *)dev)->key_pdev->name);
+    return IRQ_RETVAL(IRQ_HANDLED);
+}
 
 module_init(key_drv_init);
 module_exit(key_drv_exit);
