@@ -13,7 +13,7 @@ int main(int argc, char *argv[])
     unsigned char cnt = 0;
     char readbuf[1];
 
-    if(argc != 3)
+    if(argc != 2)
     {
         printf("Error Usage!\r\n");
         return -1;
@@ -34,7 +34,7 @@ int main(int argc, char *argv[])
         printf("write file %s failed!\r\n", filename);
         return -1;
     }
-    printf("key status: %s \r\n", (readbuf[0] == 0 ? "on":"off"));
+    printf("key status: %s \r\n", (readbuf[0] == 1 ? "on":"off"));
 
     /* 模拟占用 25S LED */
     while(1) {

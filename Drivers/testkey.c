@@ -14,7 +14,7 @@
 #include <linux/platform_device.h> //platform_device头文件
 #include <linux/of_platform.h> //platform of函数
 #include <asm/string.h>
-#include <linux/slab.h> //kmalloc头文件
+#include <linux/slab.h> //kzalloc头文件
 #include <linux/string.h>
 
 #define KEY_MAJOR 234
@@ -197,10 +197,10 @@ static int key_dev_init(struct key_dev_t **key_devs, u32 index)
     key_devs[index]->key_cdev = cdev_alloc();//申请cdev字符设备的空间
     if(key_devs[index]->key_cdev == NULL )
     {
-        pr_err("key_dev key_cdev kmalloc failed! \n");
+        pr_err("key_dev key_cdev kzalloc failed! \n");
         goto freegpio;
     }
-    printk("key_dev key_cdev kmalloc successfully!\n");
+    printk("key_dev key_cdev kzalloc successfully!\n");
 
     /*生成设备号*/
     #ifdef KEY_MAJOR
@@ -309,6 +309,7 @@ static int key_drv_probe(struct platform_device *device)
     retvalue = of_property_read_u32_array(np, "num", &index, 1);
     if(retvalue < 0)
     {
+        pr_err("can not get index !\n");
         return -EINVAL;
     }
     printk("get index = %d \n", index);
@@ -318,13 +319,13 @@ static int key_drv_probe(struct platform_device *device)
         key_drv_deinit(key_devs, index);
     }
     //分配设备结构体空间
-    key_devs[index] = kmalloc(sizeof(struct key_dev_t), GFP_KERNEL);
+    key_devs[index] = kzalloc(sizeof(struct key_dev_t), GFP_KERNEL);
     if(key_devs[index] == NULL )
     {
-        pr_err("key_devs[index] kmalloc failed! \n");
+        pr_err("key_devs[index] kzalloc failed! \n");
         return -EIO;
     }
-    printk("key_dev kmalloc successfully!\n");
+    printk("key_dev kzalloc successfully!\n");
     key_devs[index]->key_pdev = device;
     key_devs[index]->cls = key_cls;
     retvalue = key_dev_init(key_devs, index);
