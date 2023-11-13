@@ -36,7 +36,7 @@ int main(int argc, char *argv[])
             printf("write file %s failed!\r\n", filename);
             return -1;
         }
-        printf("key status: %s \r\n", (readbuf[0] == 1 ? "on":"off"));
+        printf("key status: %s \r\n", (readbuf[0] == 0 ? "on":"off"));
     }
 
     /* 关闭设备 */
