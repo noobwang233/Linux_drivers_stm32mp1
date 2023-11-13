@@ -29,20 +29,14 @@ int main(int argc, char *argv[])
         return -1;
     }
 
-    retvalue = read(fd, readbuf, 1);
-    if(retvalue < 0){
-        printf("write file %s failed!\r\n", filename);
-        return -1;
-    }
-    printf("key status: %s \r\n", (readbuf[0] == 1 ? "on":"off"));
-
-    /* 模拟占用 25S LED */
-    while(1) {
-        sleep(5);
-        cnt++;
-        printf("App running times:%d\r\n", cnt);
-        if(cnt >= 5)
-            break;
+    while(1)
+    {
+        retvalue = read(fd, readbuf, 1);
+        if(retvalue < 0){
+            printf("write file %s failed!\r\n", filename);
+            return -1;
+        }
+        printf("key status: %s \r\n", (readbuf[0] == 1 ? "on":"off"));
     }
 
     /* 关闭设备 */

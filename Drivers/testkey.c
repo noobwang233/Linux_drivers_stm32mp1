@@ -1,5 +1,3 @@
-#include "linux/printk.h"
-#include "scsi/scsi_proto.h"
 #include <linux/kernel.h>
 #include <linux/types.h>   // 定义了ssize_t的头文件
 #include <linux/ide.h>
@@ -32,12 +30,13 @@ struct key_dev_t
     struct platform_device *key_pdev;
     int gpio; /* key 所使用的 GPIO 编号 */
     int irq; //中断号
-    spinlock_t lock; /*设备互斥访问自旋锁*/
-    bool status; /*设备状态*/
+    //spinlock_t lock; /*设备互斥访问自旋锁*/
+    atomic_t status; /*设备状态*/
     bool value; /*按键状态*/
     struct cdev *key_cdev; /*字符设备结构体*/
     struct class *cls;
     struct device *dev;
+    wait_queue_head_t wait_list; //等待队列
 };
 // match table
 const struct of_device_id keys_of_match_table[] = {
@@ -86,7 +85,7 @@ static struct platform_driver key_platform_driver = {
 
 static int key_drv_open(struct inode *inode, struct file *filp)
 {
-    unsigned long flags;/*中断标记*/
+    //unsigned long flags;/*中断标记*/
     u32 index;
 
     for(index = 0; index < DEV_COUNT; index++)
@@ -106,27 +105,27 @@ static int key_drv_open(struct inode *inode, struct file *filp)
     //struct key_dev_t *key_dev = container_of(inode->i_cdev, struct key_dev_t, key_cdev);//获取当前打开设备文件对应的设备结构体变量指针
     printk("open device file: %s",key_devs[index]->key_pdev->name);
 
-    spin_lock_irqsave(&(key_devs[index]->lock), flags);//上锁
-    if(key_devs[index]->status != true) //设备忙
-    {
-        spin_unlock_irqrestore(&(key_devs[index]->lock), flags);//释放锁
-        pr_err("key_drv busy!\n");
-        return -EBUSY;
-    }
-    key_devs[index]->status = false;//占用设备
-    spin_unlock_irqrestore(&(key_devs[index]->lock), flags);//释放锁
+    // spin_lock_irqsave(&(key_devs[index]->lock), flags);//上锁
+    // if(key_devs[index]->status != true) //设备忙
+    // {
+    //     spin_unlock_irqrestore(&(key_devs[index]->lock), flags);//释放锁
+    //     pr_err("key_drv busy!\n");
+    //     return -EBUSY;
+    // }
+    // key_devs[index]->status = false;//占用设备
+    // spin_unlock_irqrestore(&(key_devs[index]->lock), flags);//释放锁
     printk("key_drv open!\r\n");
     return 0;
 }
 
 static int key_drv_release(struct inode *inode, struct file *filp)
 {
-    unsigned long flags;/*中断标记*/
+    //unsigned long flags;/*中断标记*/
     
-    struct key_dev_t *key_dev = filp->private_data;
-    spin_lock_irqsave(&(key_dev->lock), flags);//上锁
-    key_dev->status = true;//释放设备
-    spin_unlock_irqrestore(&(key_dev->lock), flags);//释放锁
+    //struct key_dev_t *key_dev = filp->private_data;
+    // spin_lock_irqsave(&(key_dev->lock), flags);//上锁
+    // key_dev->status = true;//释放设备
+    // spin_unlock_irqrestore(&(key_dev->lock), flags);//释放锁
     printk("key_drv close!\r\n");
     return 0;
 }
@@ -137,7 +136,21 @@ static ssize_t key_drv_read(struct file *filp, char __user *buf, size_t cnt, lof
     u8 status = 0;
     struct key_dev_t *key_dev = filp->private_data;
 
-    printk(" read key_drv start!\r\n");
+    /*判断当前文件描述符是阻塞还是非阻塞*/
+    if(filp->f_flags & O_NONBLOCK)
+    {
+        /*非阻塞访问*/
+        printk(" noblock read!\r\n");
+    }
+    else
+    {
+        /* 阻塞访问 */
+        /* 加入等待队列，当event不为0时，才会被唤醒 */
+        printk(" block read!\r\n");
+        retvalue = wait_event_interruptible(key_dev->wait_list, atomic_read(&key_dev->status) != 0);
+        if(retvalue)
+            return retvalue;
+    }
     status = gpio_get_value(key_dev->gpio);
     /* 向用户空间发送数据 */
     retvalue = copy_to_user(buf, &status, cnt);
@@ -150,7 +163,7 @@ static ssize_t key_drv_read(struct file *filp, char __user *buf, size_t cnt, lof
         printk("key_drv send data failed!\r\n");
         return -EIO;
     }
-
+    atomic_set(&key_dev->status, 0);
     printk(" read key_drv finish!\r\n");
     return 0;
 }
@@ -266,8 +279,11 @@ static int key_dev_init(struct key_dev_t **key_devs, u32 index)
         goto destroydev;
     }
     /* 初始化设备自旋锁*/
-    spin_lock_init(&key_devs[index]->lock);
-    key_devs[index]->status = true;
+    //spin_lock_init(&key_devs[index]->lock);
+
+    //初始化等待队列
+    init_waitqueue_head(&key_devs[index]->wait_list);
+    atomic_set(&key_devs[index]->status, 0);
     return 0;
 
 //错误处理
@@ -427,6 +443,8 @@ static void __exit key_drv_exit(void)
 irqreturn_t key_irq_handler(int irq, void *dev)
 {
     printk("%s push!\n", ((struct key_dev_t *)dev)->key_pdev->name);
+    atomic_set(&((struct key_dev_t *)dev)->status, 1);
+    wake_up_interruptible(&((struct key_dev_t *)dev)->wait_list);
     return IRQ_RETVAL(IRQ_HANDLED);
 }
 
