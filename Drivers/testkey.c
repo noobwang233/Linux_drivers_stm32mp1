@@ -1,3 +1,7 @@
+#include "asm/atomic.h"
+#include "asm/gpio.h"
+#include "linux/printk.h"
+#include "linux/spinlock.h"
 #include <linux/kernel.h>
 #include <linux/types.h>   // 定义了ssize_t的头文件
 #include <linux/ide.h>
@@ -16,6 +20,7 @@
 #include <linux/slab.h> //kzalloc头文件
 #include <linux/string.h>
 #include <linux/interrupt.h> //中断相关头文件
+#include <linux/timer.h>
 
 #define KEY_MAJOR 234
 #define DEV_COUNT 2
@@ -34,6 +39,7 @@ struct key_dev_t
     spinlock_t lock; /*设备互斥访问自旋锁*/
     bool dev_status; /*设备状态*/
     atomic_t key_value; /*按键状态*/
+    atomic_t key_value_temp; /*按键暂时状态*/
     struct cdev *key_cdev; /*字符设备结构体*/
     struct class *cls;
     struct device *dev;
@@ -84,7 +90,28 @@ static struct platform_driver key_platform_driver = {
     },
 };
 
+/* 定时器回调函数 */ 
+void key_time_function(struct timer_list *arg) 
+{
+    u8 value;
+    unsigned long flags;
+    struct key_dev_t *key_dev = container_of(arg, struct key_dev_t, timer);
 
+    spin_lock_irqsave(&key_dev->lock, flags);
+    value = gpio_get_value(key_dev->gpio);
+    if(value == atomic_read(&key_dev->key_value_temp))
+    {
+        //操作有效
+        printk("key status changed value %d\n", value);
+        atomic_set(&key_dev->key_value, value);
+        wake_up_interruptible(&((struct key_dev_t *)key_dev)->wait_list);
+    }
+    else
+    {
+        //操作无效不更改键值
+    }
+    spin_unlock_irqrestore(&key_dev->lock, flags);
+}
 static int key_drv_open(struct inode *inode, struct file *filp)
 {
     unsigned long flags;/*中断标记*/
@@ -136,7 +163,7 @@ static ssize_t key_drv_read(struct file *filp, char __user *buf, size_t cnt, lof
 {
     int retvalue = 0;
     struct key_dev_t *key_dev = filp->private_data;
-    static int last_value = KEY_RELEASED;
+    static atomic_t last_value = ATOMIC_INIT(KEY_RELEASED);
 
     /*判断当前文件描述符是阻塞还是非阻塞*/
     if(filp->f_flags & O_NONBLOCK)
@@ -148,15 +175,15 @@ static ssize_t key_drv_read(struct file *filp, char __user *buf, size_t cnt, lof
     else
     {
         /* 阻塞访问 */
-        /* 加入等待队列，当event不为0时，才会被唤醒 */
+        /* 加入等待队列，当event不为0时,即按键状态改变时，才会被唤醒 */
         printk(" block read!\r\n");
-        retvalue = wait_event_interruptible(key_dev->wait_list, atomic_read(&key_dev->key_value) != last_value);
+        retvalue = wait_event_interruptible(key_dev->wait_list, atomic_read(&key_dev->key_value) != atomic_read(&last_value));
         if(retvalue)
             return retvalue;
     }
-    last_value = atomic_read(&key_dev->key_value);
+    atomic_set(&last_value, atomic_read(&key_dev->key_value));//更新上次的键值
     /* 向用户空间发送数据 */
-    retvalue = copy_to_user(buf, &last_value, cnt);
+    retvalue = copy_to_user(buf, &key_dev->key_value, sizeof(key_dev->key_value));
     if(retvalue == 0)
     {
         printk("key_drv send data ok!\r\n");
@@ -370,6 +397,7 @@ static int key_drv_probe(struct platform_device *device)
     printk("key_dev kzalloc successfully!\n");
     key_devs[index]->key_pdev = device;
     key_devs[index]->cls = key_cls;
+    timer_setup(&key_devs[index]->timer, key_time_function, 0);
     retvalue = key_dev_init(key_devs, index);
     if(retvalue != 0)
     {
@@ -447,11 +475,12 @@ irqreturn_t key_irq_handler(int irq, void *dev)
     u8 value;
 
     printk("%s irq_handler!\n", ((struct key_dev_t *)dev)->key_pdev->name);
+    spin_lock(&((struct key_dev_t *)dev)->lock);
     value = gpio_get_value(((struct key_dev_t *)dev)->gpio);
-    printk("gpio %d value %d!\n",((struct key_dev_t *)dev)->gpio, value);
-    value = atomic_read(&((struct key_dev_t *)dev)->key_value);
-    atomic_set(&((struct key_dev_t *)dev)->key_value, (value == KEY_RELEASED ? KEY_PUSH : KEY_RELEASED));
-    wake_up_interruptible(&((struct key_dev_t *)dev)->wait_list);
+    atomic_set(&((struct key_dev_t *)dev)->key_value_temp, value);
+    printk("gpio %d key_value_temp %d!\n",((struct key_dev_t *)dev)->gpio, value);
+    mod_timer(&((struct key_dev_t *)dev)->timer, jiffies + msecs_to_jiffies(15));//延迟15ms
+    spin_unlock(&((struct key_dev_t *)dev)->lock);
     return IRQ_RETVAL(IRQ_HANDLED);
 }
 
