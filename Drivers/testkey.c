@@ -1,7 +1,3 @@
-#include "asm/atomic.h"
-#include "asm/gpio.h"
-#include "linux/printk.h"
-#include "linux/spinlock.h"
 #include <linux/kernel.h>
 #include <linux/types.h>   // 定义了ssize_t的头文件
 #include <linux/ide.h>
@@ -155,7 +151,7 @@ static int key_drv_release(struct inode *inode, struct file *filp)
     spin_lock_irqsave(&(key_dev->lock), flags);//上锁
     key_dev->dev_status = true;//释放设备
     spin_unlock_irqrestore(&(key_dev->lock), flags);//释放锁
-    printk("key_drv close!\r\n");
+    printk("key_drv release!\r\n");
     return 0;
 }
 
@@ -478,7 +474,7 @@ irqreturn_t key_irq_handler(int irq, void *dev)
     spin_lock(&((struct key_dev_t *)dev)->lock);
     value = gpio_get_value(((struct key_dev_t *)dev)->gpio);
     atomic_set(&((struct key_dev_t *)dev)->key_value_temp, value);
-    printk("gpio %d key_value_temp %d!\n",((struct key_dev_t *)dev)->gpio, value);
+    // printk("gpio %d key_value_temp %d!\n",((struct key_dev_t *)dev)->gpio, value);
     mod_timer(&((struct key_dev_t *)dev)->timer, jiffies + msecs_to_jiffies(15));//延迟15ms
     spin_unlock(&((struct key_dev_t *)dev)->lock);
     return IRQ_RETVAL(IRQ_HANDLED);
