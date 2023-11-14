@@ -19,7 +19,8 @@
 
 #define KEY_MAJOR 234
 #define DEV_COUNT 2
-
+#define KEY_PUSH 0
+#define KEY_RELEASED 1
 /*private date*/
 static u8 key_dev_count = 0; /* 设备计数 */
 static struct class *key_cls;//设备类
@@ -31,11 +32,12 @@ struct key_dev_t
     int gpio; /* key 所使用的 GPIO 编号 */
     int irq; //中断号
     spinlock_t lock; /*设备互斥访问自旋锁*/
-    bool status; /*设备状态*/
-    atomic_t value; /*按键状态*/
+    bool dev_status; /*设备状态*/
+    atomic_t key_value; /*按键状态*/
     struct cdev *key_cdev; /*字符设备结构体*/
     struct class *cls;
     struct device *dev;
+    struct timer_list timer; //用于消抖的计时器
     wait_queue_head_t wait_list; //等待队列
 };
 // match table
@@ -106,13 +108,13 @@ static int key_drv_open(struct inode *inode, struct file *filp)
     printk("open device file: %s",key_devs[index]->key_pdev->name);
 
     spin_lock_irqsave(&(key_devs[index]->lock), flags);//上锁
-    if(key_devs[index]->status != true) //设备忙
+    if(key_devs[index]->dev_status != true) //设备忙
     {
         spin_unlock_irqrestore(&(key_devs[index]->lock), flags);//释放锁
         pr_err("key_drv busy!\n");
         return -EBUSY;
     }
-    key_devs[index]->status = false;//占用设备
+    key_devs[index]->dev_status = false;//占用设备
     spin_unlock_irqrestore(&(key_devs[index]->lock), flags);//释放锁
     printk("key_drv open!\r\n");
     return 0;
@@ -124,7 +126,7 @@ static int key_drv_release(struct inode *inode, struct file *filp)
     
     struct key_dev_t *key_dev = filp->private_data;
     spin_lock_irqsave(&(key_dev->lock), flags);//上锁
-    key_dev->status = true;//释放设备
+    key_dev->dev_status = true;//释放设备
     spin_unlock_irqrestore(&(key_dev->lock), flags);//释放锁
     printk("key_drv close!\r\n");
     return 0;
@@ -133,27 +135,28 @@ static int key_drv_release(struct inode *inode, struct file *filp)
 static ssize_t key_drv_read(struct file *filp, char __user *buf, size_t cnt, loff_t *offt)
 {
     int retvalue = 0;
-    u8 value = 0;
     struct key_dev_t *key_dev = filp->private_data;
+    static int last_value = KEY_RELEASED;
 
     /*判断当前文件描述符是阻塞还是非阻塞*/
     if(filp->f_flags & O_NONBLOCK)
     {
         /*非阻塞访问*/
         printk(" noblock read!\r\n");
+
     }
     else
     {
         /* 阻塞访问 */
         /* 加入等待队列，当event不为0时，才会被唤醒 */
         printk(" block read!\r\n");
-        retvalue = wait_event_interruptible(key_dev->wait_list, atomic_read(&key_dev->value) != 0);
+        retvalue = wait_event_interruptible(key_dev->wait_list, atomic_read(&key_dev->key_value) != last_value);
         if(retvalue)
             return retvalue;
     }
-    value = gpio_get_value(key_dev->gpio);
+    last_value = atomic_read(&key_dev->key_value);
     /* 向用户空间发送数据 */
-    retvalue = copy_to_user(buf, &value, cnt);
+    retvalue = copy_to_user(buf, &last_value, cnt);
     if(retvalue == 0)
     {
         printk("key_drv send data ok!\r\n");
@@ -163,7 +166,6 @@ static ssize_t key_drv_read(struct file *filp, char __user *buf, size_t cnt, lof
         printk("key_drv send data failed!\r\n");
         return -EIO;
     }
-    atomic_set(&key_dev->value, 0);
     printk("read key_drv finish!\r\n");
     return 0;
 }
@@ -268,7 +270,7 @@ static int key_dev_init(struct key_dev_t **key_devs, u32 index)
         goto destroydev;
     }
     printk("get irq num %d success!\r\n", key_devs[index]->irq);
-    retvalue = request_irq(key_devs[index]->irq, key_irq_handler, IRQF_TRIGGER_FALLING, key_devs[index]->key_pdev->name, key_devs[index]);
+    retvalue = request_irq(key_devs[index]->irq, key_irq_handler, IRQF_TRIGGER_FALLING | IRQF_TRIGGER_RISING, key_devs[index]->key_pdev->name, key_devs[index]);
     if(retvalue != 0) 
     {
         pr_err("request irq failed!\n");
@@ -280,10 +282,10 @@ static int key_dev_init(struct key_dev_t **key_devs, u32 index)
     }
     /* 初始化设备自旋锁*/
     spin_lock_init(&key_devs[index]->lock);
-    key_devs[index]->status = true;
+    key_devs[index]->dev_status = true;
     //初始化等待队列
     init_waitqueue_head(&key_devs[index]->wait_list);
-    atomic_set(&key_devs[index]->value, 0);
+    atomic_set(&key_devs[index]->key_value, KEY_RELEASED);
     return 0;
 
 //错误处理
@@ -334,7 +336,7 @@ static int key_drv_probe(struct platform_device *device)
     const char *str;
     struct device_node *np = device->dev.of_node;
 
-    //check status
+    //check dev_status
     retvalue = of_property_read_string(np, "status", &str);
     if(retvalue < 0)
     {
@@ -442,8 +444,13 @@ static void __exit key_drv_exit(void)
 
 irqreturn_t key_irq_handler(int irq, void *dev)
 {
+    u8 value;
+
     printk("%s irq_handler!\n", ((struct key_dev_t *)dev)->key_pdev->name);
-    atomic_set(&((struct key_dev_t *)dev)->value, 1);
+    value = gpio_get_value(((struct key_dev_t *)dev)->gpio);
+    printk("gpio %d value %d!\n",((struct key_dev_t *)dev)->gpio, value);
+    value = atomic_read(&((struct key_dev_t *)dev)->key_value);
+    atomic_set(&((struct key_dev_t *)dev)->key_value, (value == KEY_RELEASED ? KEY_PUSH : KEY_RELEASED));
     wake_up_interruptible(&((struct key_dev_t *)dev)->wait_list);
     return IRQ_RETVAL(IRQ_HANDLED);
 }
