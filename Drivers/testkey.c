@@ -181,7 +181,7 @@ static ssize_t key_drv_read(struct file *filp, char __user *buf, size_t cnt, lof
         if(retvalue)
             return retvalue;
     }
-    atomic_set(&last_value, atomic_read(&key_dev->key_value));//更新上次的键值
+    atomic_set(&last_value, atomic_read(&key_dev->key_value));//记录键值
     /* 向用户空间发送数据 */
     retvalue = copy_to_user(buf, &key_dev->key_value, sizeof(key_dev->key_value));
     if(retvalue == 0)
